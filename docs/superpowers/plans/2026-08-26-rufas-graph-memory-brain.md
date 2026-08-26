@@ -295,7 +295,7 @@ git commit -m "feat(brain): add OpenCypher query execution, impact tracing, and 
 - Consumes: Populated KùzuDB graph connection and destination directory path.
 - Produces: `export_obsidian_vault(conn: kuzu.Connection, output_dir: Path) -> dict[str, int]` generating complete vault folder structure with YAML frontmatter, Dataview DQL blocks, and interconnected `[[wikilinks]]`.
 
-- [ ] **Step 1: Write the failing test for Obsidian vault generation**
+- [x] **Step 1: Write the failing test for Obsidian vault generation**
 
 ```python
 # In tests/test_brain.py
@@ -312,24 +312,24 @@ def test_export_obsidian_vault(tmp_path):
     assert (vault_dir / "05_Modules" / "Animal_Module.md").exists()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_export_obsidian_vault -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `export_obsidian_vault` in `tools/rufas_brain.py`**
+- [x] **Step 3: Implement `export_obsidian_vault` in `tools/rufas_brain.py`**
 
 Generate `00_Dashboard.md`, `01_Simulations/`, `02_Parameters/`, `03_Outputs/`, `04_Correlations/`, and `05_Modules/` with Dataview DQL tables.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_export_obsidian_vault -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add tools/rufas_brain.py tests/test_brain.py
+git add tools/rufas_brain.py tests/test_brain.py docs/superpowers/plans/2026-08-26-rufas-graph-memory-brain.md
 git commit -m "feat(brain): implement on-demand Obsidian Markdown knowledge graph exporter"
 ```
 

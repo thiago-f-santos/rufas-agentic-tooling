@@ -1296,6 +1296,734 @@ def lookup_variable_info(conn: kuzu.Connection, var_query: str) -> List[Dict[str
     return results
 
 
+MODULE_NOTE_MAP: Dict[str, str] = {
+    "animal": "Animal_Module",
+    "field_soil": "Field_Soil_Module",
+    "feed_storage": "Feed_Storage_Module",
+    "manure": "Manure_Module",
+    "eee": "EEE_Module",
+}
+
+MODULE_DISPLAY_NAMES: Dict[str, str] = {
+    "animal": "Animal Subsystem (Herd Dynamics & Lactation)",
+    "field_soil": "Field & Soil Subsystem (Hydrology & Biogeochemistry)",
+    "feed_storage": "Feed Storage Subsystem (Preservation & Spoilage)",
+    "manure": "Manure Subsystem (Processing, Separation & Emissions)",
+    "eee": "Economics, Energy & Emissions (EEE Subsystem)",
+}
+
+
+def sanitize_filename(name: str, max_len: int = 200) -> str:
+    """
+    Sanitizes strings for safe Obsidian note filenames and cross-platform filesystems.
+    Replaces / \\ : * ? \" < > | with underscores and trims whitespace.
+    Truncates overly long filenames (> max_len) with a deterministic hash.
+    """
+    import hashlib
+    import re
+    cleaned = re.sub(r'[/\\:*?"<>|]', "_", str(name)).strip()
+    if not cleaned:
+        return "unnamed"
+    if len(cleaned) > max_len:
+        h = hashlib.md5(str(name).encode("utf-8")).hexdigest()[:8]
+        cleaned = f"{cleaned[:max_len-10]}_{h}"
+    return cleaned
+
+
+def get_module_note_name(mod_name: str) -> str:
+    """Returns the canonical Obsidian note name for a module."""
+    m = mod_name.lower().strip()
+    if m in MODULE_NOTE_MAP:
+        return MODULE_NOTE_MAP[m]
+    return f"{sanitize_filename(mod_name).title()}_Module"
+
+
+def format_yaml_frontmatter(metadata: Dict[str, Any]) -> str:
+    """
+    Formats a dictionary as a valid YAML frontmatter block enclosed in --- delimiters.
+    Handles strings, numbers, booleans, and lists cleanly without third-party deps.
+    """
+    lines = ["---"]
+    for k, v in metadata.items():
+        if v is None:
+            lines.append(f"{k}: null")
+        elif isinstance(v, bool):
+            lines.append(f"{k}: {'true' if v else 'false'}")
+        elif isinstance(v, (int, float)):
+            lines.append(f"{k}: {v}")
+        elif isinstance(v, list):
+            if not v:
+                lines.append(f"{k}: []")
+            else:
+                items_str = []
+                for item in v:
+                    if isinstance(item, (int, float)):
+                        items_str.append(str(item))
+                    elif isinstance(item, bool):
+                        items_str.append("true" if item else "false")
+                    else:
+                        s = str(item).replace('"', '\\"')
+                        items_str.append(f'"{s}"')
+                lines.append(f"{k}: [{', '.join(items_str)}]")
+        else:
+            s_val = str(v)
+            if any(ch in s_val for ch in [" ", ":", "#", "@", "[", "]", "{", "}", "(", ")", "/", "\\", "\n", '"', "'", ",", "*", "&", "!", "%", "|", ">", "`", "="]):
+                escaped = s_val.replace('"', '\\"')
+                lines.append(f'{k}: "{escaped}"')
+            else:
+                lines.append(f"{k}: {s_val}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+def export_obsidian_vault(
+    conn: kuzu.Connection,
+    output_dir: Union[str, Path] = "vault",
+) -> Dict[str, int]:
+    """
+    Exports the entire RuFaS Graph Memory Brain into an interactive Obsidian Markdown vault:
+    1. 00_Dashboard.md: System index, Dataview DQL queries, module statistics, and navigation links.
+    2. 01_Simulations/<run_id>.md: Detailed note for each simulation run (parameters, top metrics, links).
+    3. 02_Parameters/<clean_param_id>.md: Note for input parameters (metadata, causal outputs, correlations).
+    4. 03_Outputs/<clean_var_name>.md: Note for output variables (metadata, causal drivers, correlations, run metrics).
+    5. 04_Correlations/Significant_Correlations.md: Summary table of all |r| >= 0.5 relationships across runs.
+    6. 05_Modules/<ModuleName>.md: Notes for the 5 biophysical and economic modules.
+
+    Args:
+        conn: Initialized KùzuDB connection.
+        output_dir: Destination directory path for the Obsidian vault.
+
+    Returns:
+        Dict with counts of generated notes.
+    """
+    import datetime
+    out_path = Path(output_dir).resolve()
+    logger.info("Exporting Obsidian knowledge graph vault to %s...", out_path)
+
+    sim_dir = out_path / "01_Simulations"
+    param_dir = out_path / "02_Parameters"
+    outputs_dir = out_path / "03_Outputs"
+    corr_dir = out_path / "04_Correlations"
+    modules_dir = out_path / "05_Modules"
+
+    for d in [out_path, sim_dir, param_dir, outputs_dir, corr_dir, modules_dir]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    # 1. Batch query all nodes and relationships from KùzuDB
+    modules_df = conn.execute("MATCH (m:Module) RETURN m.name AS name, m.description AS description, m.manager_class AS manager_class ORDER BY m.name").get_as_df()
+    blobs_df = conn.execute("MATCH (b:ConfigBlob) OPTIONAL MATCH (b)-[:CONFIG_OF]->(m:Module) RETURN b.name AS name, b.title AS title, b.file_path AS file_path, b.description AS description, b.format_type AS format_type, m.name AS module_name ORDER BY b.name").get_as_df()
+    params_df = conn.execute("MATCH (p:InputParameter) RETURN p.id AS id, p.blob_name AS blob_name, p.param_name AS param_name, p.data_type AS data_type, p.unit AS unit, p.default_value AS default_value, p.description AS description ORDER BY p.id").get_as_df()
+    vars_df = conn.execute("MATCH (v:OutputVariable) RETURN v.name AS name, v.module AS module, v.unit AS unit, v.category AS category, v.reporter_class AS reporter_class, v.description AS description ORDER BY v.name").get_as_df()
+    runs_df = conn.execute("MATCH (r:SimulationRun) RETURN r.run_id AS run_id, r.scenario_name AS scenario_name, r.execution_date AS execution_date, r.start_date AS start_date, r.end_date AS end_date, r.duration_days AS duration_days, r.random_seed AS random_seed, r.status AS status ORDER BY r.run_id").get_as_df()
+    sim_with_df = conn.execute("MATCH (r:SimulationRun)-[s:SIMULATED_WITH]->(p:InputParameter) RETURN r.run_id AS run_id, p.id AS param_id, p.param_name AS param_name, p.blob_name AS blob_name, s.value AS value ORDER BY p.id").get_as_df()
+    metrics_df = conn.execute("MATCH (r:SimulationRun)-[:GENERATED_METRIC]->(rm:RunMetric)-[:OF_VARIABLE]->(v:OutputVariable) RETURN r.run_id AS run_id, r.scenario_name AS scenario_name, v.name AS var_name, v.module AS module, v.category AS category, v.unit AS unit, rm.mean_val AS mean_val, rm.min_val AS min_val, rm.max_val AS max_val, rm.sum_val AS sum_val, rm.non_null_count AS non_null_count ORDER BY v.name").get_as_df()
+    causal_df = conn.execute("MATCH (p:InputParameter)-[c:CAUSALLY_INFLUENCES]->(v:OutputVariable) RETURN p.id AS param_id, p.param_name AS param_name, p.blob_name AS blob_name, v.name AS var_name, v.module AS module, v.unit AS unit, v.category AS category, c.pathway AS pathway, c.mechanism AS mechanism ORDER BY v.name").get_as_df()
+    corr_df = conn.execute("MATCH (p:InputParameter)-[c:CORRELATES_WITH]->(v:OutputVariable) RETURN p.id AS param_id, p.param_name AS param_name, p.blob_name AS blob_name, v.name AS var_name, v.module AS module, v.unit AS unit, v.category AS category, c.pearson_r AS pearson_r, c.spearman_r AS spearman_r, c.p_value AS p_value, c.sample_size AS sample_size ORDER BY abs(c.pearson_r) DESC").get_as_df()
+
+    # Pre-index relationships in Python memory for fast lookups
+    causal_by_param: Dict[str, List[Dict[str, Any]]] = {}
+    causal_by_var: Dict[str, List[Dict[str, Any]]] = {}
+    if not causal_df.empty:
+        for rec in causal_df.to_dict(orient="records"):
+            pid = str(rec["param_id"])
+            vname = str(rec["var_name"])
+            causal_by_param.setdefault(pid, []).append(rec)
+            causal_by_var.setdefault(vname, []).append(rec)
+
+    corr_by_param: Dict[str, List[Dict[str, Any]]] = {}
+    corr_by_var: Dict[str, List[Dict[str, Any]]] = {}
+    if not corr_df.empty:
+        for rec in corr_df.to_dict(orient="records"):
+            pid = str(rec["param_id"])
+            vname = str(rec["var_name"])
+            corr_by_param.setdefault(pid, []).append(rec)
+            corr_by_var.setdefault(vname, []).append(rec)
+
+    metrics_by_var: Dict[str, List[Dict[str, Any]]] = {}
+    metrics_by_run: Dict[str, List[Dict[str, Any]]] = {}
+    if not metrics_df.empty:
+        for rec in metrics_df.to_dict(orient="records"):
+            vname = str(rec["var_name"])
+            rid = str(rec["run_id"])
+            metrics_by_var.setdefault(vname, []).append(rec)
+            metrics_by_run.setdefault(rid, []).append(rec)
+
+    sim_with_by_run: Dict[str, List[Dict[str, Any]]] = {}
+    if not sim_with_df.empty:
+        for rec in sim_with_df.to_dict(orient="records"):
+            rid = str(rec["run_id"])
+            sim_with_by_run.setdefault(rid, []).append(rec)
+
+    blobs_by_module: Dict[str, List[Dict[str, Any]]] = {}
+    blob_module_map: Dict[str, str] = {}
+    if not blobs_df.empty:
+        for rec in blobs_df.to_dict(orient="records"):
+            bname = str(rec["name"])
+            mname = str(rec.get("module_name") or classify_config_blob_module(bname))
+            blob_module_map[bname] = mname
+            blobs_by_module.setdefault(mname, []).append(rec)
+
+    vars_by_module: Dict[str, List[Dict[str, Any]]] = {}
+    if not vars_df.empty:
+        for rec in vars_df.to_dict(orient="records"):
+            mname = str(rec["module"])
+            vars_by_module.setdefault(mname, []).append(rec)
+
+    params_count_by_blob: Dict[str, int] = {}
+    if not params_df.empty:
+        for _, row in params_df.iterrows():
+            bname = str(row["blob_name"])
+            params_count_by_blob[bname] = params_count_by_blob.get(bname, 0) + 1
+
+    # 2. Generate 00_Dashboard.md
+    now_iso = datetime.datetime.now().isoformat()
+    modules_count = len(modules_df) if not modules_df.empty else len(CANONICAL_MODULES)
+    blobs_count = len(blobs_df)
+    params_count = len(params_df)
+    vars_count = len(vars_df)
+    runs_count = len(runs_df)
+    causal_count = len(causal_df)
+    corr_count = len(corr_df)
+
+    dash_frontmatter = {
+        "title": "RuFaS Knowledge Graph Dashboard",
+        "type": "dashboard",
+        "tags": ["rufas", "graph_memory", "dashboard"],
+        "generated_at": now_iso,
+        "total_modules": modules_count,
+        "total_config_blobs": blobs_count,
+        "total_input_parameters": params_count,
+        "total_output_variables": vars_count,
+        "total_simulation_runs": runs_count,
+        "total_causal_pathways": causal_count,
+        "total_correlations": corr_count,
+    }
+
+    dash_content = format_yaml_frontmatter(dash_frontmatter)
+    dash_content += f"""# 🧠 RuFaS Graph Memory & Biophysical Knowledge Dashboard
+
+Welcome to the **RuFaS Graph Memory Brain & Correlation Engine** knowledge vault. This interactive knowledge graph connects whole-farm input configuration parameters, biophysical causal pathways, 2,038 simulation output variables, and cross-run statistical correlations.
+
+---
+
+## 📊 Knowledge Graph Summary
+
+| Entity / Layer | Node Count / Relationships |
+|---|---|
+| **Biophysical Modules** | `{modules_count}` modules (`[[Animal_Module]]`, `[[Field_Soil_Module]]`, `[[Feed_Storage_Module]]`, `[[Manure_Module]]`, `[[EEE_Module]]`) |
+| **Input Configuration Blobs** | `{blobs_count}` configuration files |
+| **Input Parameters** | `{params_count}` parameters |
+| **Output Variables** | `{vars_count}` variables |
+| **Biophysical Causal Pathways** | `{causal_count}` direct causal mechanisms |
+| **Simulation Runs Ingested** | `{runs_count}` simulation runs |
+| **Significant Cross-Run Correlations** | `{corr_count}` relationships ($|r| \\ge 0.5$, $p \\le 0.05$) — [[Significant_Correlations|View Table]] |
+
+---
+
+## 🧭 Biophysical Subsystem Modules
+
+- 🐮 **[[Animal_Module|Animal Subsystem]]**: Herd dynamics, lactation kinetics, DMI, enteric methane ($CH_4$), excretion.
+- 🌱 **[[Field_Soil_Module|Field & Soil Subsystem]]**: Multi-layer hydrology, soil biogeochemistry (SOM, C/N pools), crop growth, harvest.
+- 🌾 **[[Feed_Storage_Module|Feed Storage Subsystem]]**: Silos, bunkers, bags, dry matter spoilage, fermentation degradation, feed purchasing.
+- 💩 **[[Manure_Module|Manure Subsystem]]**: Housing scraping, solid-liquid separation, anaerobic digesters, lagoons, emissions.
+- ⚡ **[[EEE_Module|Economics, Energy & Emissions (EEE) Subsystem]]**: ASABE tractor fuel, electricity, whole-farm economics, Scope 1-3 GHG LCA.
+
+---
+
+## 🏃 Simulation Runs Ingested
+
+```dataview
+TABLE
+  scenario as "Scenario",
+  duration_days as "Duration (Days)",
+  status as "Status",
+  execution_date as "Execution Date"
+FROM "01_Simulations"
+SORT file.name DESC
+```
+
+---
+
+## 🔗 Top Cross-Run Empirical Correlations
+
+```dataview
+TABLE
+  input_param as "Input Parameter",
+  output_variable as "Output Variable",
+  pearson_r as "Pearson r",
+  p_value as "p-value",
+  sample_size as "Runs Analyzed"
+FROM #correlation
+SORT abs(pearson_r) DESC
+LIMIT 20
+```
+
+---
+
+## 📂 Vault Navigation
+
+- 📁 `01_Simulations/`: Individual notes for all ingested simulation runs.
+- 📁 `02_Parameters/`: Parameter dictionary with default values and causal outputs.
+- 📁 `03_Outputs/`: Comprehensive catalog of all output variables and latest metrics.
+- 📁 `04_Correlations/`: Statistical cross-run correlation matrices ([[Significant_Correlations]]).
+- 📁 `05_Modules/`: Core biophysical and economic subsystem overviews.
+"""
+    (out_path / "00_Dashboard.md").write_text(dash_content, encoding="utf-8")
+
+    # 3. Generate 01_Simulations/<run_id>.md
+    simulations_notes = 0
+    if not runs_df.empty:
+        for _, r_row in runs_df.iterrows():
+            rid = str(r_row["run_id"])
+            clean_rid = sanitize_filename(rid)
+            scen = str(r_row["scenario_name"])
+            exec_dt = str(r_row["execution_date"])
+            st_dt = str(r_row["start_date"])
+            end_dt = str(r_row["end_date"])
+            dur = int(r_row["duration_days"])
+            seed = int(r_row["random_seed"])
+            status = str(r_row["status"])
+
+            r_frontmatter = {
+                "id": rid,
+                "type": "simulation_run",
+                "scenario": scen,
+                "execution_date": exec_dt,
+                "start_date": st_dt,
+                "end_date": end_dt,
+                "duration_days": dur,
+                "random_seed": seed,
+                "status": status,
+                "tags": ["simulation_run", scen],
+            }
+
+            r_content = format_yaml_frontmatter(r_frontmatter)
+            r_content += f"""# 🏃 Simulation Run: `{rid}`
+
+## 📋 Run Overview
+
+- **Scenario Name**: `{scen}`
+- **Execution Date**: `{exec_dt}`
+- **Simulation Time Window**: `{st_dt}` to `{end_dt}` (`{dur}` days)
+- **Random Seed**: `{seed}`
+- **Execution Status**: `{status}`
+
+---
+
+## ⚙️ Key Configured Parameters
+
+| Parameter | Value | Blob |
+|---|---|---|
+"""
+            run_params = sim_with_by_run.get(rid, [])
+            if run_params:
+                for p_rec in run_params[:40]:
+                    pid = p_rec["param_id"]
+                    clean_pid = sanitize_filename(pid)
+                    p_name = p_rec["param_name"]
+                    p_val = p_rec["value"]
+                    b_name = p_rec["blob_name"]
+                    r_content += f"| [[{clean_pid}|{p_name}]] | `{p_val}` | `{b_name}` |\n"
+            else:
+                r_content += "| *(Default configuration applied)* | - | - |\n"
+
+            # Top Production Metrics
+            r_metrics = metrics_by_run.get(rid, [])
+            prod_metrics = [m for m in r_metrics if m.get("category") == "production" or any(k in m["var_name"].lower() for k in ["milk", "yield", "harvest", "produced"])]
+            ghg_metrics = [m for m in r_metrics if m.get("category") == "emissions" or any(k in m["var_name"].lower() for k in ["methane", "ch4", "n2o", "co2", "emission", "ammonia"])]
+
+            r_content += """
+---
+
+## 🥛 Top Production Metrics
+
+| Output Variable | Module | Mean Value | Min | Max | Unit |
+|---|---|---|---|---|---|
+"""
+            if prod_metrics:
+                for pm in prod_metrics[:15]:
+                    vname = pm["var_name"]
+                    clean_v = sanitize_filename(vname)
+                    r_content += f"| [[{clean_v}|{vname}]] | `{pm.get('module', '')}` | `{pm['mean_val']:.3f}` | `{pm['min_val']:.3f}` | `{pm['max_val']:.3f}` | `{pm.get('unit', '')}` |\n"
+            else:
+                r_content += "| *(No production metrics recorded)* | - | - | - | - | - |\n"
+
+            r_content += """
+---
+
+## 🌍 Top Greenhouse Gas & Environmental Emissions Metrics
+
+| Output Variable | Module | Mean Value | Sum Total | Unit |
+|---|---|---|---|---|
+"""
+            if ghg_metrics:
+                for gm in ghg_metrics[:15]:
+                    vname = gm["var_name"]
+                    clean_v = sanitize_filename(vname)
+                    r_content += f"| [[{clean_v}|{vname}]] | `{gm.get('module', '')}` | `{gm['mean_val']:.3f}` | `{gm['sum_val']:.3f}` | `{gm.get('unit', '')}` |\n"
+            else:
+                r_content += "| *(No emissions metrics recorded)* | - | - | - |\n"
+
+            r_content += f"""
+---
+
+## 📊 All Ingested Metric Outputs ({len(r_metrics)} variables)
+
+```dataview
+TABLE
+  module as "Module",
+  category as "Category",
+  mean_val as "Mean Value",
+  unit as "Unit"
+FROM "03_Outputs"
+WHERE any(contains(runs, "{rid}"))
+```
+"""
+            (sim_dir / f"{clean_rid}.md").write_text(r_content, encoding="utf-8")
+            simulations_notes += 1
+
+    # 4. Generate 02_Parameters/<clean_param_id>.md
+    parameters_notes = 0
+    if not params_df.empty:
+        for _, p_row in params_df.iterrows():
+            pid = str(p_row["id"])
+            clean_pid = sanitize_filename(pid)
+            bname = str(p_row["blob_name"])
+            pname = str(p_row["param_name"])
+            dtype = str(p_row["data_type"])
+            unit = str(p_row["unit"])
+            def_val = str(p_row["default_value"])
+            desc = str(p_row["description"])
+
+            mod_name = blob_module_map.get(bname, classify_config_blob_module(bname))
+            mod_note = get_module_note_name(mod_name)
+
+            p_frontmatter = {
+                "id": pid,
+                "type": "input_parameter",
+                "param_name": pname,
+                "blob": bname,
+                "module": mod_name,
+                "data_type": dtype,
+                "unit": unit,
+                "default": def_val,
+                "tags": ["input_parameter", f"{mod_name}_module"],
+            }
+
+            p_content = format_yaml_frontmatter(p_frontmatter)
+            p_content += f"""# ⚙️ Input Parameter: `{pname}`
+
+- **Full Identifier**: `{pid}`
+- **Config Blob**: `{bname}`
+- **Owning Module**: [[{mod_note}|{mod_name}]]
+- **Data Type**: `{dtype}`
+- **Unit**: `{unit or 'N/A'}`
+- **Default Value**: `{def_val}`
+- **Description**: {desc or 'Configurable model parameter in RuFaS.'}
+
+---
+
+## 🔬 Biophysical Causal Outputs
+
+"""
+            causal_outs = causal_by_param.get(pid, [])
+            if causal_outs:
+                for c_rec in causal_outs:
+                    vname = c_rec["var_name"]
+                    clean_v = sanitize_filename(vname)
+                    vmod = c_rec.get("module", "")
+                    vunit = c_rec.get("unit", "")
+                    pway = c_rec.get("pathway", "")
+                    mech = c_rec.get("mechanism", "")
+                    p_content += f"- **[[{clean_v}|{vname}]]** (`{vmod}`, `{vunit or 'N/A'}`)\n"
+                    p_content += f"  - **Pathway**: {pway}\n"
+                    p_content += f"  - **Mechanism**: {mech}\n"
+            else:
+                p_content += "- *(No direct biophysical causal links registered)*\n"
+
+            p_content += f"""
+---
+
+## 📊 Empirical Cross-Run Correlations
+
+```dataview
+TABLE
+  output_variable as "Output Variable",
+  pearson_r as "Pearson r",
+  spearman_r as "Spearman rho",
+  p_value as "p-value",
+  sample_size as "Runs Analyzed"
+FROM #correlation
+WHERE input_param = "{pid}"
+SORT abs(pearson_r) DESC
+```
+"""
+            param_corrs = corr_by_param.get(pid, [])
+            if param_corrs:
+                p_content += """
+| Output Variable | Module | Pearson $r$ | Spearman $\\rho$ | $p$-value | Sample Size |
+|---|---|---|---|---|---|
+"""
+                for cr in param_corrs:
+                    vname = cr["var_name"]
+                    clean_v = sanitize_filename(vname)
+                    vmod = cr.get("module", "")
+                    p_content += f"| [[{clean_v}|{vname}]] | `{vmod}` | `{cr['pearson_r']:.3f}` | `{cr['spearman_r']:.3f}` | `{cr['p_value']:.4e}` | `{cr['sample_size']}` |\n"
+
+            (param_dir / f"{clean_pid}.md").write_text(p_content, encoding="utf-8")
+            parameters_notes += 1
+
+    # 5. Generate 03_Outputs/<clean_var_name>.md
+    outputs_notes = 0
+    if not vars_df.empty:
+        for _, v_row in vars_df.iterrows():
+            vname = str(v_row["name"])
+            clean_vname = sanitize_filename(vname)
+            mod = str(v_row["module"])
+            unit = str(v_row["unit"])
+            cat = str(v_row["category"])
+            rep_cls = str(v_row["reporter_class"])
+            desc = str(v_row["description"])
+            mod_note = get_module_note_name(mod)
+
+            v_frontmatter = {
+                "name": vname,
+                "type": "output_variable",
+                "module": mod,
+                "category": cat,
+                "unit": unit,
+                "reporter_class": rep_cls,
+                "tags": ["output_variable", f"{mod}_module", cat],
+            }
+
+            v_content = format_yaml_frontmatter(v_frontmatter)
+            v_content += f"""# 📈 Output Variable: `{vname}`
+
+- **Owning Module**: [[{mod_note}|{mod}]]
+- **Category**: `{cat}`
+- **Unit**: `{unit or 'N/A'}`
+- **Reporter Class**: `{rep_cls}`
+- **Description**: {desc}
+
+---
+
+## ⚙️ Driving Input Parameters (Biophysical Causal Drivers)
+
+"""
+            causal_ins = causal_by_var.get(vname, [])
+            if causal_ins:
+                for c_rec in causal_ins:
+                    pid = c_rec["param_id"]
+                    clean_p = sanitize_filename(pid)
+                    pname = c_rec.get("param_name", pid)
+                    bname = c_rec.get("blob_name", "")
+                    pway = c_rec.get("pathway", "")
+                    mech = c_rec.get("mechanism", "")
+                    v_content += f"- **[[{clean_p}|{pname}]]** (ID: `{pid}`, Blob: `{bname}`)\n"
+                    v_content += f"  - **Pathway**: {pway}\n"
+                    v_content += f"  - **Mechanism**: {mech}\n"
+            else:
+                v_content += "- *(No direct causal input parameters registered)*\n"
+
+            v_content += f"""
+---
+
+## 📊 Empirical Correlations
+
+```dataview
+TABLE
+  input_param as "Input Parameter",
+  pearson_r as "Pearson r",
+  spearman_r as "Spearman rho",
+  p_value as "p-value",
+  sample_size as "Runs Analyzed"
+FROM #correlation
+WHERE output_variable = "{vname}"
+SORT abs(pearson_r) DESC
+```
+"""
+            var_corrs = corr_by_var.get(vname, [])
+            if var_corrs:
+                v_content += """
+| Input Parameter | Pearson $r$ | Spearman $\\rho$ | $p$-value | Sample Size |
+|---|---|---|---|---|
+"""
+                for cr in var_corrs:
+                    pid = cr["param_id"]
+                    clean_p = sanitize_filename(pid)
+                    pname = cr.get("param_name", pid)
+                    v_content += f"| [[{clean_p}|{pname}]] | `{cr['pearson_r']:.3f}` | `{cr['spearman_r']:.3f}` | `{cr['p_value']:.4e}` | `{cr['sample_size']}` |\n"
+
+            var_metrics = metrics_by_var.get(vname, [])
+            v_content += """
+---
+
+## 🏃 Simulation Run Values
+
+| Simulation Run | Scenario | Mean Value | Min | Max | Sum Total | Valid Days |
+|---|---|---|---|---|---|---|
+"""
+            if var_metrics:
+                for vm in var_metrics:
+                    rid = vm["run_id"]
+                    clean_r = sanitize_filename(rid)
+                    scen = vm.get("scenario_name", "")
+                    v_content += f"| [[{clean_r}|{rid}]] | `{scen}` | `{vm['mean_val']:.3f}` | `{vm['min_val']:.3f}` | `{vm['max_val']:.3f}` | `{vm['sum_val']:.3f}` | `{vm['non_null_count']}` |\n"
+            else:
+                v_content += "| *(No run metrics ingested yet)* | - | - | - | - | - | - |\n"
+
+            (outputs_dir / f"{clean_vname}.md").write_text(v_content, encoding="utf-8")
+            outputs_notes += 1
+
+    # 6. Generate 04_Correlations/Significant_Correlations.md
+    corr_frontmatter = {
+        "title": "Significant Empirical Correlations (|r| >= 0.5)",
+        "type": "correlation_index",
+        "tags": ["correlations", "cross_run_analysis", "rufas_brain"],
+        "total_correlations": corr_count,
+    }
+    corr_content = format_yaml_frontmatter(corr_frontmatter)
+    corr_content += """# 📊 Significant Cross-Run Correlations ($|r| \\ge 0.5$, $p \\le 0.05$)
+
+This document indexes all empirical relationships identified across ingested RuFaS simulation runs with statistical significance ($p \\le 0.05$) and strong correlation ($|r| \\ge 0.5$ or $|\\rho| \\ge 0.5$).
+
+---
+
+## 📈 Top Statistically Significant Correlations
+
+"""
+    if not corr_df.empty:
+        corr_content += """| Input Parameter | Output Variable | Module | Pearson $r$ | Spearman $\\rho$ | $p$-value | Sample Size ($N$) |
+|---|---|---|---|---|---|---|
+"""
+        for cr in corr_df.to_dict(orient="records")[:100]:
+            pid = str(cr["param_id"])
+            clean_p = sanitize_filename(pid)
+            pname = str(cr.get("param_name") or pid)
+            vname = str(cr["var_name"])
+            clean_v = sanitize_filename(vname)
+            vmod = str(cr.get("module", ""))
+            corr_content += f"| [[{clean_p}|{pname}]] | [[{clean_v}|{vname}]] | `{vmod}` | `{cr['pearson_r']:.3f}` | `{cr['spearman_r']:.3f}` | `{cr['p_value']:.4e}` | `{cr['sample_size']}` |\n"
+    else:
+        corr_content += "*No significant correlations computed across runs yet.*\n"
+
+    corr_content += """
+---
+
+## 🔍 Dataview Dynamic Query
+
+```dataview
+TABLE
+  input_param as "Input Parameter",
+  output_variable as "Output Variable",
+  pearson_r as "Pearson r",
+  spearman_r as "Spearman rho",
+  p_value as "p-value",
+  sample_size as "Runs Analyzed"
+FROM #correlation
+SORT abs(pearson_r) DESC
+```
+"""
+    (corr_dir / "Significant_Correlations.md").write_text(corr_content, encoding="utf-8")
+    correlations_notes = 1
+
+    # 7. Generate 05_Modules/<ModuleName>.md
+    modules_notes = 0
+    mod_list = modules_df.to_dict(orient="records") if not modules_df.empty else CANONICAL_MODULES
+    for m_rec in mod_list:
+        mname = str(m_rec["name"])
+        note_name = get_module_note_name(mname)
+        display_name = MODULE_DISPLAY_NAMES.get(mname, f"{mname.title()} Subsystem")
+        mgr_cls = str(m_rec.get("manager_class", ""))
+        desc = str(m_rec.get("description", ""))
+
+        m_frontmatter = {
+            "name": mname,
+            "type": "biophysical_module",
+            "manager_class": mgr_cls,
+            "tags": ["rufas_module", mname],
+        }
+
+        m_content = format_yaml_frontmatter(m_frontmatter)
+        m_content += f"""# 🧩 Module: {display_name}
+
+- **Manager Class**: `{mgr_cls}`
+- **Description**: {desc}
+
+---
+
+## 📦 Configuration Files & Parameter Blobs
+
+| Config Blob | Title | Path | Parameters | Format |
+|---|---|---|---|---|
+"""
+        mod_blobs = blobs_by_module.get(mname, [])
+        if mod_blobs:
+            for b_rec in mod_blobs:
+                b_name = b_rec["name"]
+                b_title = b_rec.get("title", b_name)
+                b_path = b_rec.get("file_path", "")
+                b_fmt = b_rec.get("format_type", "json")
+                p_count = params_count_by_blob.get(b_name, 0)
+                m_content += f"| `{b_name}` | `{b_title}` | `{b_path}` | `{p_count}` | `{b_fmt}` |\n"
+        else:
+            m_content += "| *(No configuration blobs registered)* | - | - | - | - |\n"
+
+        mod_vars = vars_by_module.get(mname, [])
+        m_content += f"""
+---
+
+## 📈 Core Output Variables ({len(mod_vars)} variables)
+
+| Variable | Category | Unit | Reporter Class |
+|---|---|---|---|
+"""
+        if mod_vars:
+            for v_rec in mod_vars[:50]:
+                vname = v_rec["name"]
+                clean_v = sanitize_filename(vname)
+                cat = v_rec.get("category", "")
+                unit = v_rec.get("unit", "")
+                rep_cls = v_rec.get("reporter_class", "")
+                m_content += f"| [[{clean_v}|{vname}]] | `{cat}` | `{unit}` | `{rep_cls}` |\n"
+            if len(mod_vars) > 50:
+                m_content += f"| *(... and {len(mod_vars) - 50} more variables in `03_Outputs/`)* | - | - | - |\n"
+        else:
+            m_content += "| *(No output variables registered for this module)* | - | - | - |\n"
+
+        m_content += f"""
+---
+
+## 🔍 Dataview Dynamic Query
+
+```dataview
+TABLE
+  unit as "Unit",
+  category as "Category",
+  reporter_class as "Reporter Class"
+FROM "03_Outputs"
+WHERE module = "{mname}"
+SORT file.name ASC
+```
+"""
+        (modules_dir / f"{note_name}.md").write_text(m_content, encoding="utf-8")
+        modules_notes += 1
+
+    total_notes = 1 + simulations_notes + parameters_notes + outputs_notes + correlations_notes + modules_notes
+
+    summary = {
+        "notes_generated": total_notes,
+        "dashboard_notes": 1,
+        "simulations_notes": simulations_notes,
+        "parameters_notes": parameters_notes,
+        "outputs_notes": outputs_notes,
+        "correlations_notes": correlations_notes,
+        "modules_notes": modules_notes,
+    }
+    logger.info("Obsidian vault export completed successfully: %s", summary)
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RuFaS Graph Memory Brain & Correlation Engine CLI",
@@ -1426,6 +2154,20 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
+    export_parser = subparsers.add_parser("export-obsidian", help="Export RuFaS knowledge graph to an Obsidian Markdown vault")
+    export_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="vault",
+        help="Target directory path for the Obsidian vault (default: 'vault')",
+    )
+    export_parser.add_argument(
+        "--db-path",
+        type=str,
+        default="data/rufas_brain.kuzu",
+        help="Path to KùzuDB database folder",
+    )
+
     args = parser.parse_args()
     if args.subcommand == "init":
         conn = init_brain_database(args.db_path)
@@ -1534,6 +2276,11 @@ def main() -> None:
                     print(f"\n   🏃 Simulation Run Metrics ({len(v['run_metrics'])}):")
                     for rm in v["run_metrics"]:
                         print(f"      • [{rm['run_id']}] Mean={rm['mean_val']:.3f}, Min={rm['min_val']:.3f}, Max={rm['max_val']:.3f}, Sum={rm['sum_val']:.3f} (N={rm['non_null_count']})")
+    elif args.subcommand == "export-obsidian":
+        conn = init_brain_database(args.db_path)
+        stats = export_obsidian_vault(conn, args.output_dir)
+        print(f"Obsidian knowledge graph vault exported to {args.output_dir}")
+        print(f"Export statistics: {stats}")
     else:
         parser.print_help()
 

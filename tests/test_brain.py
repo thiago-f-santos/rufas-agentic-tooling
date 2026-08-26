@@ -12,6 +12,7 @@ from tools.rufas_brain import (
     populate_structural_ontology,
     ingest_simulation_run,
     compute_statistical_correlations,
+    export_obsidian_vault,
 )
 
 
@@ -614,6 +615,188 @@ def test_cli_query_impact_and_lookup(tmp_path, monkeypatch, capsys):
     lookup_data = json.loads(captured_lookup_json.out)
     assert len(lookup_data) == 1
     assert lookup_data[0]["name"] == "milk_production"
+
+
+def test_export_obsidian_vault_synthetic(tmp_path):
+    db_dir = str(tmp_path / "test_obsidian.kuzu")
+    conn = init_brain_database(db_dir)
+
+    # 1. Modules
+    conn.execute("CREATE (m:Module {name: 'animal', description: 'Herd dynamics & lactation', manager_class: 'HerdManager'})")
+    conn.execute("CREATE (m:Module {name: 'field_soil', description: 'Hydrology & soil biogeochemistry', manager_class: 'FieldManager'})")
+    conn.execute("CREATE (m:Module {name: 'feed_storage', description: 'Storage & spoilage', manager_class: 'FeedManager'})")
+    conn.execute("CREATE (m:Module {name: 'manure', description: 'Manure processing & storage', manager_class: 'ManureManager'})")
+    conn.execute("CREATE (m:Module {name: 'eee', description: 'Economics, energy, and emissions', manager_class: 'EEEManager'})")
+
+    # 2. Config Blobs
+    conn.execute("CREATE (b:ConfigBlob {name: 'animal', title: 'Animal Config', file_path: 'animal.json', description: 'Animal setup', format_type: 'json'})")
+    conn.execute("MATCH (b:ConfigBlob {name: 'animal'}), (m:Module {name: 'animal'}) CREATE (b)-[:CONFIG_OF]->(m)")
+
+    # 3. Input Parameters
+    conn.execute("CREATE (p:InputParameter {id: 'animal.herd_information.cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'animals', default_value: '100', description: 'Total number of mature cows'})")
+    conn.execute("CREATE (p:InputParameter {id: 'animal.mature_body_weight', blob_name: 'animal', param_name: 'mature_body_weight', data_type: 'float', unit: 'kg', default_value: '650.0', description: 'Average mature cow weight'})")
+    conn.execute("MATCH (b:ConfigBlob {name: 'animal'}), (p:InputParameter {id: 'animal.herd_information.cow_num'}) CREATE (b)-[:CONTAINS_PARAM]->(p)")
+    conn.execute("MATCH (b:ConfigBlob {name: 'animal'}), (p:InputParameter {id: 'animal.mature_body_weight'}) CREATE (b)-[:CONTAINS_PARAM]->(p)")
+
+    # 4. Output Variables (including slash in unit for sanitization test)
+    conn.execute("CREATE (v:OutputVariable {name: 'AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)', module: 'animal', unit: 'kg/day', category: 'production', reporter_class: 'AnimalReporter', description: 'Daily milk output'})")
+    conn.execute("CREATE (v:OutputVariable {name: 'ManureModuleReporter.ch4_emissions (kg CO2/kg DM)', module: 'manure', unit: 'kg CO2/kg DM', category: 'emissions', reporter_class: 'ManureReporter', description: 'Methane emissions'})")
+
+    # 5. Causal Edges
+    conn.execute(
+        "MATCH (p:InputParameter {id: 'animal.herd_information.cow_num'}), (v:OutputVariable {name: 'AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)'}) CREATE (p)-[:CAUSALLY_INFLUENCES {pathway: 'Production Scaling', mechanism: 'Herd size scales milk volume'}]->(v)"
+    )
+
+    # 6. Simulation Runs & Metrics
+    conn.execute("CREATE (r:SimulationRun {run_id: 'run_baseline_01', scenario_name: 'freestall', execution_date: '2026-08-26T12:00:00', start_date: '2013:1', end_date: '2013:60', duration_days: 60, random_seed: 42, status: 'completed'})")
+    conn.execute(
+        "MATCH (r:SimulationRun {run_id: 'run_baseline_01'}), (p:InputParameter {id: 'animal.herd_information.cow_num'}) CREATE (r)-[:SIMULATED_WITH {value: '100'}]->(p)"
+    )
+    conn.execute(
+        "MATCH (r:SimulationRun {run_id: 'run_baseline_01'}), (v:OutputVariable {name: 'AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)'}) CREATE (rm:RunMetric {id: 'run_baseline_01::milk', run_id: 'run_baseline_01', var_name: 'AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)', mean_val: 3200.5, min_val: 3000.0, max_val: 3400.0, sum_val: 192030.0, non_null_count: 60}) CREATE (r)-[:GENERATED_METRIC]->(rm) CREATE (rm)-[:OF_VARIABLE]->(v)"
+    )
+
+    # 7. Correlation Edges
+    conn.execute(
+        "MATCH (p:InputParameter {id: 'animal.herd_information.cow_num'}), (v:OutputVariable {name: 'AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)'}) CREATE (p)-[:CORRELATES_WITH {pearson_r: 0.995, spearman_r: 0.992, p_value: 0.0001, sample_size: 5}]->(v)"
+    )
+
+    # Export Obsidian Vault
+    vault_dir = tmp_path / "test_vault"
+    stats = export_obsidian_vault(conn, vault_dir)
+
+    assert isinstance(stats, dict)
+    assert stats["notes_generated"] == 1 + 1 + 2 + 2 + 1 + 5  # dashboard + 1 run + 2 params + 2 vars + 1 corr + 5 modules = 12
+    assert stats["dashboard_notes"] == 1
+    assert stats["simulations_notes"] == 1
+    assert stats["parameters_notes"] == 2
+    assert stats["outputs_notes"] == 2
+    assert stats["correlations_notes"] == 1
+    assert stats["modules_notes"] == 5
+
+    # Verify Folder Structure
+    assert (vault_dir / "00_Dashboard.md").exists()
+    assert (vault_dir / "01_Simulations").is_dir()
+    assert (vault_dir / "02_Parameters").is_dir()
+    assert (vault_dir / "03_Outputs").is_dir()
+    assert (vault_dir / "04_Correlations").is_dir()
+    assert (vault_dir / "05_Modules").is_dir()
+
+    # Verify 00_Dashboard.md
+    dash_text = (vault_dir / "00_Dashboard.md").read_text(encoding="utf-8")
+    assert dash_text.startswith("---")
+    assert "title: \"RuFaS Knowledge Graph Dashboard\"" in dash_text or "title: RuFaS Knowledge Graph Dashboard" in dash_text
+    assert "```dataview" in dash_text
+    assert "[[Animal_Module]]" in dash_text
+    assert "[[Significant_Correlations|View Table]]" in dash_text
+
+    # Verify 01_Simulations/run_baseline_01.md
+    run_file = vault_dir / "01_Simulations" / "run_baseline_01.md"
+    assert run_file.exists()
+    run_text = run_file.read_text(encoding="utf-8")
+    assert run_text.startswith("---")
+    assert "id: run_baseline_01" in run_text
+    assert "freestall" in run_text
+    assert "[[animal.herd_information.cow_num|cow_num]]" in run_text
+    assert "3200.500" in run_text
+
+    # Verify 02_Parameters/animal.herd_information.cow_num.md
+    param_file = vault_dir / "02_Parameters" / "animal.herd_information.cow_num.md"
+    assert param_file.exists()
+    param_text = param_file.read_text(encoding="utf-8")
+    assert param_text.startswith("---")
+    assert "id: animal.herd_information.cow_num" in param_text
+    assert "[[Animal_Module|animal]]" in param_text
+    assert "Production Scaling" in param_text
+    # Causal output wikilink (with sanitized / to _)
+    assert "[[AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg_day)|AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)]]" in param_text
+    assert "WHERE input_param = \"animal.herd_information.cow_num\"" in param_text
+
+    # Verify 03_Outputs/ (check filename sanitization for /)
+    var_sanitized_name = "AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg_day).md"
+    var_file = vault_dir / "03_Outputs" / var_sanitized_name
+    assert var_file.exists()
+    var_text = var_file.read_text(encoding="utf-8")
+    assert var_text.startswith("---")
+    assert "name: \"AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)\"" in var_text
+    assert "[[Animal_Module|animal]]" in var_text
+    assert "[[animal.herd_information.cow_num|cow_num]]" in var_text
+    assert "[[run_baseline_01|run_baseline_01]]" in var_text
+    assert "3200.500" in var_text
+
+    # Verify 04_Correlations/Significant_Correlations.md
+    corr_file = vault_dir / "04_Correlations" / "Significant_Correlations.md"
+    assert corr_file.exists()
+    corr_text = corr_file.read_text(encoding="utf-8")
+    assert corr_text.startswith("---")
+    assert "0.995" in corr_text
+    assert "[[animal.herd_information.cow_num|cow_num]]" in corr_text
+
+    # Verify 05_Modules/Animal_Module.md
+    animal_file = vault_dir / "05_Modules" / "Animal_Module.md"
+    assert animal_file.exists()
+    animal_text = animal_file.read_text(encoding="utf-8")
+    assert animal_text.startswith("---")
+    assert "name: animal" in animal_text
+    assert "HerdManager" in animal_text
+    assert "animal.json" in animal_text
+
+
+def test_export_obsidian_vault_cli(tmp_path, monkeypatch, capsys):
+    from tools.rufas_brain import main
+    db_dir = str(tmp_path / "cli_obsidian.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (m:Module {name: 'animal', description: 'Animal subsystem', manager_class: 'HerdManager'})")
+    conn.execute("CREATE (p:InputParameter {id: 'animal.cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'animals', default_value: '100', description: 'Herd size'})")
+
+    vault_dir = str(tmp_path / "cli_vault")
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "export-obsidian", "--db-path", db_dir, "--output-dir", vault_dir])
+    main()
+
+    captured = capsys.readouterr()
+    assert "Obsidian knowledge graph vault exported to" in captured.out
+    assert "Export statistics:" in captured.out
+
+    assert (Path(vault_dir) / "00_Dashboard.md").exists()
+    assert (Path(vault_dir) / "05_Modules" / "Animal_Module.md").exists()
+
+
+def test_export_obsidian_vault_empty_db(tmp_path):
+    db_dir = str(tmp_path / "empty_obsidian.kuzu")
+    conn = init_brain_database(db_dir)
+
+    vault_dir = tmp_path / "empty_vault"
+    stats = export_obsidian_vault(conn, vault_dir)
+
+    assert isinstance(stats, dict)
+    assert stats["dashboard_notes"] == 1
+    assert stats["correlations_notes"] == 1
+    assert stats["modules_notes"] == 5
+    assert (vault_dir / "00_Dashboard.md").exists()
+    assert (vault_dir / "04_Correlations" / "Significant_Correlations.md").exists()
+    assert (vault_dir / "05_Modules" / "Animal_Module.md").exists()
+
+
+def test_export_obsidian_vault_ontology(tmp_path):
+    db_dir = str(tmp_path / "ontology_obsidian.kuzu")
+    conn = init_brain_database(db_dir)
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    populate_structural_ontology(conn, rufas_root)
+
+    vault_dir = tmp_path / "ontology_vault"
+    stats = export_obsidian_vault(conn, vault_dir)
+
+    assert stats["notes_generated"] > 50
+    assert (vault_dir / "00_Dashboard.md").exists()
+    assert (vault_dir / "05_Modules" / "Animal_Module.md").exists()
+    assert (vault_dir / "05_Modules" / "Field_Soil_Module.md").exists()
+    assert (vault_dir / "05_Modules" / "Feed_Storage_Module.md").exists()
+    assert (vault_dir / "05_Modules" / "Manure_Module.md").exists()
+    assert (vault_dir / "05_Modules" / "EEE_Module.md").exists()
+    assert len(list((vault_dir / "02_Parameters").glob("*.md"))) > 500
+    assert len(list((vault_dir / "03_Outputs").glob("*.md"))) > 1000
+
 
 
 
