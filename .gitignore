@@ -42,3 +42,8 @@ output/
 logs/
 temp/
 *.log
+
+# RuFaS Graph Memory Brain & Vault
+data/*.kuzu
+*.kuzu
+vault/

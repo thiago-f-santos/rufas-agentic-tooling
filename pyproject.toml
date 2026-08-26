@@ -15,7 +15,9 @@ dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "deepdiff>=6.0.0",
-    "jsonschema>=4.17.0"
+    "jsonschema>=4.17.0",
+    "kuzu>=0.11.3",
+    "scipy>=1.10.0"
 ]
 
 [project.scripts]
@@ -23,6 +25,7 @@ rufas-inspect = "tools.rufas_inspector:main"
 rufas-run = "tools.rufas_runner:main"
 rufas-analyze = "tools.rufas_analyzer:main"
 rufas-install-skills = "tools.install_skills:main"
+rufas-brain = "tools.rufas_brain:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
