@@ -231,6 +231,25 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("daily_biomass_gain", content)
         self.assertIn("harvested_yield_DM", content)
 
+    def test_feed_storage_specialist_output_docs(self) -> None:
+        """Verify feed storage specialist skill documentation contains simulation output dictionary and diagnostic rules."""
+        skill_path = PROJECT_ROOT / "skills" / "rufas-feed-storage-specialist" / "SKILL.md"
+        self.assertTrue(skill_path.exists())
+        content = skill_path.read_text(encoding="utf-8")
+        self.assertIn("## Simulation Output Variable Dictionary", content)
+        self.assertIn("FeedManager", content)
+        self.assertIn("PurchasedFeedStorage", content)
+        self.assertIn("ration_interval", content)
+        self.assertIn("amount_purchased", content)
+        self.assertIn("stored_feed_DM", content)
+        self.assertIn("moisture_content", content)
+        self.assertIn("available_capacity", content)
+        self.assertIn("TotalInventory", content)
+        self.assertIn("aerobic_face_loss_DM", content)
+        self.assertIn("fermentation_loss_DM", content)
+        self.assertIn("total_shrinkage", content)
+        self.assertIn("FeedFulfillmentResults", content)
+
 
     def test_manure_specialist_output_docs(self) -> None:
         """Verify manure specialist skill documentation contains simulation output dictionary and validation rules."""
