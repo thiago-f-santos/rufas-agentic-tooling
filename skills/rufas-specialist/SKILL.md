@@ -9,7 +9,7 @@ description: Use when analyzing, running, configuring, or debugging the RuFaS (R
 
 **RuFaS (Ruminant Farm Systems)** is a modular, daily-timestep, whole-farm biophysical simulation model. It integrates herd dynamics, crop and soil nutrient-water cycles, feed storage losses, manure handling/treatment, economics, energy use, and greenhouse gas (GHG) emissions.
 
-This skill provides the authoritative domain, architecture, data flow, input configuration, and diagnostic principles for agents interacting with RuFaS.
+This skill provides the authoritative domain, architecture, data flow, input configuration, output taxonomy (2,038 variables), and diagnostic principles for agents interacting with RuFaS.
 
 ---
 
@@ -21,11 +21,27 @@ This skill provides the authoritative domain, architecture, data flow, input con
 - Tracing daily simulation data flows and inter-module exchanges between `FieldManager`, `FeedManager`, `HerdManager`, `ManureManager`, and `EEEManager`.
 - Interpreting or modifying biophysical models: dairy herd nutrition, lactation, enteric methane, soil-crop dynamics, feed spoilage, manure lagoons/digesters.
 - Diagnosing early termination errors, input schema mismatches, negative mass balances, or missing output CSV files.
-- Analyzing simulation output data pools, greenhouse gas emission balances, and farm efficiency metrics.
+- Analyzing simulation output data pools (2,038 variables), greenhouse gas emission balances, and farm efficiency metrics.
 
 ### When NOT to Use
 - Generic non-ruminant livestock modeling without RuFaS codebase involvement.
 - General Python syntax or boilerplate tasks unrelated to the RuFaS platform.
+
+---
+
+## Modular Specialist Skill Ecosystem
+
+For detailed domain-specific equations, input schemas, output variable dictionaries, and diagnostic validation rules, delegate to or consult the dedicated specialist skills:
+
+| Domain | Specialist Skill | Primary Classes / Reporters | Variable Count |
+|---|---|---|---|
+| **Herd & Nutrition** | [`rufas-animal-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal-specialist/SKILL.md) | `AnimalModuleReporter`, `HerdManager`, `RationOptimizer`, `LactationCurve` | 865 variables |
+| **Field & Soil** | [`rufas-field-soil-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field-soil-specialist/SKILL.md) | `FieldDataReporter`, `FieldManager`, `Field`, `Crop` | 744 variables |
+| **Manure Management** | [`rufas-manure-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure-specialist/SKILL.md) | `Manure.SingleStreamHandler`, `ParlorCleaningHandler`, `Separator.*`, `Storage.*` | 264 variables |
+| **Feed Storage** | [`rufas-feed-storage-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed-storage-specialist/SKILL.md) | `FeedManager`, `PurchasedFeedStorage`, `StorageStructure.*` | 134 variables |
+| **EEE & Lifecycle** | [`rufas-eee-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee-specialist/SKILL.md) | `EmissionsEstimator`, `Economy`, `Energy`, `EEEManager` | 16 vars + post-sim |
+| **General / Weather** | Master Skill | `Weather`, simulation runtime time-series, disclaimer | 15 variables |
+| **Total Whole-Farm** | [`rufas-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/SKILL.md) | `SimulationEngine`, `OutputManager`, `InputManager` | **2,038 variables** |
 
 ---
 
@@ -71,14 +87,29 @@ For cross-validation rules and schema property definitions, consult:
 
 ---
 
-## Output Management & Filter Routing
+## Whole-Farm Output Taxonomy & Data Pool Architecture
 
-- **Variable CSV Generation**: RuFaS does **not** dump variables to CSV by default. CSV generation requires filter files with prefix `csv_` (e.g. `output/output_filters/csv_all_variables.txt`).
-- **Data Pools vs Non-Data Pools**:
-  - `variables_pool`: Simulation time-series. Memory managed via chunkification. Export filtered by `csv_`, `json_`, `graph_`, `report_` prefixes.
-  - `logs_pool`, `warnings_pool`, `errors_pool`: Operational diagnostics. Written unconditionally to `output/logs/` (`errors.txt`, `warnings.txt`, `logs.txt`).
+In whole-farm simulations with full variable reporting (`output/output_filters/csv_all_variables.txt`), RuFaS generates **2,038 time-series output columns** across all biophysical and economic domains.
 
-For output filter syntax and log troubleshooting, consult:
+### Data Pool Variable Hierarchy
+RuFaS structures runtime output into two distinct pool types managed by `OutputManager`:
+
+1. **Data Pools (`variables_pool`)**:
+   - Stores all time-series simulation variables registered via `OutputManager.add_variable()`.
+   - **Memory Chunkification**: Employs an automated chunkification engine (`chunkification=True`). When variable storage exceeds in-memory thresholds, chunks are written to temporary disk buffers and reassembled during post-simulation compilation, ensuring a minimal RAM footprint during long multi-year simulations.
+   - **Filter-Controlled Export**: Variable dumping to disk is **disabled by default** to preserve I/O performance. CSV generation requires filter files with prefix `csv_` in `output/output_filters/` (e.g. `output/output_filters/csv_all_variables.txt`).
+   - **Header Bracket Unit Convention**: Column headers follow the strict signature `Class.method.variable_name.context (unit)` (e.g., `AnimalModuleReporter.report_animal_population_statistics.population_number_of_cows (animals)`).
+
+2. **Non-Data Pools (`logs_pool`, `warnings_pool`, `errors_pool`)**:
+   - Operational diagnostics, validation logs, warnings, and terminal exception stack traces.
+   - Always written unconditionally upon run termination to `output/logs/`:
+     - `output/logs/errors.txt`
+     - `output/logs/warnings.txt`
+     - `output/logs/logs.txt`
+     - `output/logs/variable_names_and_contexts.txt`
+     - `output/logs/variables_usage_counts.txt`
+
+For detailed variable catalogs, filter syntax, and log troubleshooting, consult:
 - [output-and-diagnostics.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/references/output-and-diagnostics.md)
 
 ---
@@ -89,7 +120,7 @@ For output filter syntax and log troubleshooting, consult:
 |---|---|
 | Inspect & validate metadata | `python -m tools.rufas_inspector --scenario <path_to_metadata>` |
 | Validate task manager metadata | `python -m tools.rufas_inspector --task-metadata input/task_manager_metadata.json` |
-| Run simulation with CSV export | `python -m tools.rufas_runner --task-metadata input/task_manager_metadata.json` |
+| Run simulation with CSV export | `python -m tools.rufas_runner --task-metadata input/task_manager_metadata.json --enable-all-csv` |
 | Analyze outputs and GHG | `python -m tools.rufas_analyzer --output-dir ../RuFaS/output/` |
 
 ---
@@ -99,7 +130,7 @@ For output filter syntax and log troubleshooting, consult:
 | Rationalization / Excuse | Reality & Correct Protocol |
 |---|---|
 | *"I'll edit the JSON input without checking cross-validation."* | Cross-validation rules enforce relational integrity (e.g. diet DM vs crop yields). Invalid edits cause silent or fatal simulation aborts. Run `rufas_inspector.py`. |
-| *"The simulation finished, but output is empty because of a code bug."* | Check `output/output_filters/`. If no filter starts with `csv_`, variables are not exported to disk by design. |
+| *"The simulation finished, but output is empty because of a code bug."* | Check `output/output_filters/`. If no filter starts with `csv_`, variables are not exported to disk by design. Enable `csv_all_variables.txt`. |
 | *"I can feed a newly harvested crop on the same day prior to feed planning."* | Feed must be received into storage, inventoried, and integrated during ration planning before it can be fed. |
 | *"I can omit required blobs for modules I don't care about."* | `InputManager` enforces all 22 required blobs. Use nullable input files instead of deleting keys from scenario metadata. |
 

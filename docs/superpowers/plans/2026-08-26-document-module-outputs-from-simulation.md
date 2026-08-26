@@ -342,7 +342,7 @@ git commit -m "docs(skills): document EEE module Scope 1-3 GHG footprints and fi
 - Consumes: Whole-farm simulation outputs across all 5 biophysical and economic domains.
 - Produces: Master cross-module output mapping and data pool architecture documentation.
 
-- [ ] **Step 1: Write test for master skill and reference guide updates**
+- [x] **Step 1: Write test for master skill and reference guide updates**
 
 ```python
 # In tests/test_tooling.py
@@ -353,22 +353,22 @@ def test_master_rufas_specialist_output_docs():
     assert "Data Pool Variable Hierarchy" in ref_path.read_text(encoding="utf-8")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_master_rufas_specialist_output_docs -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update master skill and reference guide**
+- [x] **Step 3: Update master skill and reference guide**
 
 - Update `skills/rufas-specialist/SKILL.md` to reference the exact 2,038 output variable taxonomy across the 5 modular domains.
 - Update `skills/rufas-specialist/references/output-and-diagnostics.md` with complete details on `variables_pool`, CSV header bracket parsing `(unit)`, and error log interpretation.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_master_rufas_specialist_output_docs -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-specialist/SKILL.md skills/rufas-specialist/references/output-and-diagnostics.md tests/test_tooling.py

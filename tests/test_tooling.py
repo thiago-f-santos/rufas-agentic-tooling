@@ -279,6 +279,35 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("annual_net_farm_income", content)
         self.assertIn("IOFC_per_cwt", content)
         self.assertIn("diesel_fuel_liters_total", content)
+    def test_master_rufas_specialist_output_docs(self) -> None:
+        """Verify master rufas specialist skill and reference guides contain full output hierarchy and diagnostics."""
+        skill_path = PROJECT_ROOT / "skills" / "rufas-specialist" / "SKILL.md"
+        ref_path = PROJECT_ROOT / "skills" / "rufas-specialist" / "references" / "output-and-diagnostics.md"
+        self.assertTrue(skill_path.exists())
+        self.assertTrue(ref_path.exists())
+
+        skill_content = skill_path.read_text(encoding="utf-8")
+        ref_content = ref_path.read_text(encoding="utf-8")
+
+        # Master skill assertions
+        self.assertTrue("2,038" in skill_content or "2,000+" in skill_content)
+        self.assertIn("AnimalModuleReporter", skill_content)
+        self.assertIn("FieldDataReporter", skill_content)
+        self.assertIn("variables_pool", skill_content)
+        self.assertIn("csv_all_variables.txt", skill_content)
+
+        # Reference guide assertions
+        self.assertIn("Data Pool Variable Hierarchy", ref_content)
+        self.assertIn("variables_pool", ref_content)
+        self.assertIn("logs_pool", ref_content)
+        self.assertIn("warnings_pool", ref_content)
+        self.assertIn("errors_pool", ref_content)
+        self.assertIn("chunkification", ref_content)
+        self.assertIn("csv_all_variables.txt", ref_content)
+        self.assertIn("865", ref_content)
+        self.assertIn("744", ref_content)
+        self.assertIn("264", ref_content)
+        self.assertIn("134", ref_content)
 
 
 if __name__ == "__main__":
