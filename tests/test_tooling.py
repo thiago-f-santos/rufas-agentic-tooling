@@ -63,6 +63,42 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertTrue(summary["errors_detected"])
         self.assertEqual(len(summary["csv_files_found"]), 0)
 
+    def test_all_skills_sdo_compliance(self) -> None:
+        """Verify all 6 RuFaS specialist skills meet strict SDO and frontmatter rules."""
+        skills_dir = PROJECT_ROOT / "skills"
+        self.assertTrue(skills_dir.exists())
+
+        expected_skills = [
+            "rufas-specialist",
+            "rufas-animal-specialist",
+            "rufas-field-soil-specialist",
+            "rufas-feed-storage-specialist",
+            "rufas-manure-specialist",
+            "rufas-eee-specialist",
+        ]
+
+        for skill_name in expected_skills:
+            skill_path = skills_dir / skill_name / "SKILL.md"
+            self.assertTrue(skill_path.exists(), f"Missing SKILL.md for {skill_name}")
+
+            content = skill_path.read_text(encoding="utf-8")
+            self.assertTrue(content.startswith("---"), f"{skill_name} missing YAML frontmatter start")
+            parts = content.split("---", 2)
+            self.assertGreaterEqual(len(parts), 3, f"{skill_name} invalid frontmatter structure")
+
+            frontmatter = parts[1]
+            self.assertIn(f"name: {skill_name}", frontmatter, f"{skill_name} frontmatter name mismatch")
+            self.assertIn("description:", frontmatter, f"{skill_name} missing description")
+
+            desc_lines = [line for line in frontmatter.splitlines() if line.strip().startswith("description:")]
+            self.assertTrue(len(desc_lines) > 0, f"{skill_name} missing description line")
+            desc_text = desc_lines[0].replace("description:", "").strip()
+            self.assertTrue(
+                desc_text.startswith("Use when"),
+                f"{skill_name} description must start with 'Use when...', got: {desc_text[:30]}",
+            )
+            self.assertLessEqual(len(desc_text), 500, f"{skill_name} description exceeds 500 chars")
+
 
 if __name__ == "__main__":
     unittest.main()

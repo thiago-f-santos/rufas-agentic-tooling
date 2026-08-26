@@ -9,7 +9,13 @@ A specialized agentic engineering and diagnostic toolkit for **RuFaS (Ruminant F
 RuFaS is a modular, biophysical, whole-farm simulation environment designed to simulate dairy farm production, soil-crop-animal dynamics, environmental footprint, economics, energy, and greenhouse gas (GHG) emissions.
 
 This repository provides:
-1. **RuFaS Specialist Skill (`skills/rufas-specialist/`)**: Comprehensive agent instruction guide and reference manuals for deep-domain reasoning on RuFaS daily lifecycle, biophysical subsystems, metadata hierarchy, and diagnostics.
+1. **RuFaS Specialist Skills Suite (`skills/`)**:
+   - `rufas-specialist`: Whole-system architecture, simulation engine lifecycle, metadata graph, runner and diagnostics.
+   - `rufas-animal-specialist`: Herd demographics, lactation curves (Wood/Dijkstra), NASEM/NRC LP ration formulation, enteric methane ($\text{CH}_4$), and excretion.
+   - `rufas-field-soil-specialist`: Multi-layer soil water balance, N/P/C biogeochemistry, crop growth (GDD/RUE), management schedules, and harvests.
+   - `rufas-feed-storage-specialist`: Storage structures (silos, bunkers, bags), degradation/spoilage, inventory forecasting, and feed fulfillment.
+   - `rufas-manure-specialist`: Barn collection, solid-liquid separation, storage lagoons, anaerobic digestion, gaseous emissions ($\text{CH}_4, \text{NH}_3, \text{N}_2\text{O}$), and field application.
+   - `rufas-eee-specialist`: Economics (IOFC, COP), ASABE tractor machinery fuel, electricity, and Scope 1-3 GHG lifecycle accounting.
 2. **Operational Tooling (`tools/`)**:
    - `rufas_inspector.py`: Validates input metadata, schema conformity, and cross-validation rules.
    - `rufas_runner.py`: Executes RuFaS simulations with managed output filters and structured log/error capture.
@@ -26,14 +32,19 @@ rufas-agentic-tooling/
 ├── README.md                          # Project documentation
 ├── pyproject.toml                     # Python project configuration and entrypoints
 ├── skills/
-│   └── rufas-specialist/
-│       ├── SKILL.md                   # Main skill entrypoint (SDO optimized)
-│       └── references/
-│           ├── simulation-flow.md     # Daily orchestration sequence & cross-module data structures
-│           ├── biophysical-modules.md # Animal, Field/Soil, Feed Storage, and Manure subsystems
-│           ├── eee-and-lifecycle.md   # Economics, Energy, and Emissions (GHG) calculations
-│           ├── input-metadata-schema.md # Metadata graph, 22 required blobs & cross-validation syntax
-│           └── output-and-diagnostics.md# Output pools, prefix filtering, and error diagnosis
+│   ├── rufas-specialist/              # System-level specialist
+│   │   ├── SKILL.md
+│   │   └── references/                # In-depth architectural references
+│   ├── rufas-animal-specialist/       # Animal & herd specialist
+│   │   └── SKILL.md
+│   ├── rufas-field-soil-specialist/   # Field, soil & crop specialist
+│   │   └── SKILL.md
+│   ├── rufas-feed-storage-specialist/ # Feed storage & inventory specialist
+│   │   └── SKILL.md
+│   ├── rufas-manure-specialist/       # Manure management & treatment specialist
+│   │   └── SKILL.md
+│   └── rufas-eee-specialist/          # Economics, energy & emissions specialist
+│       └── SKILL.md
 ├── tools/
 │   ├── __init__.py
 │   ├── rufas_inspector.py             # CLI metadata & input validator
