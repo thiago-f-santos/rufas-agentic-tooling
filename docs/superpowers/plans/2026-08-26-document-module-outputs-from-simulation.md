@@ -30,7 +30,7 @@
 - Consumes: Output CSVs generated in `RuFaS/output/CSVs/` containing 2,000+ simulation variables.
 - Produces: `summarize_modular_variables(df: pd.DataFrame) -> dict[str, Any]` categorizing variables into `animal`, `field_soil`, `feed_storage`, `manure`, and `eee` with summary statistics (mean, min, max, non-null count, units extracted from header brackets).
 
-- [ ] **Step 1: Write the failing test for modular output categorization**
+- [x] **Step 1: Write the failing test for modular output categorization**
 
 ```python
 # Add to tests/test_tooling.py
@@ -44,12 +44,12 @@ def test_rufas_analyzer_modular_categorization():
     assert categorize_variable_name("EmissionsEstimator.calculate_purchased_feed_emissions.purchased_feed_emissions.44 (kg CO2 / kg DM)") == "eee"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_rufas_analyzer_modular_categorization -v`
 Expected: FAIL with `ImportError` or `AttributeError: cannot import name 'categorize_variable_name'`
 
-- [ ] **Step 3: Implement modular categorization in `rufas_analyzer.py`**
+- [x] **Step 3: Implement modular categorization in `rufas_analyzer.py`**
 
 ```python
 def categorize_variable_name(col_name: str) -> str:
@@ -68,12 +68,12 @@ def categorize_variable_name(col_name: str) -> str:
     return "general"
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -v`
 Expected: PASS (all tests pass)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_analyzer.py tests/test_tooling.py
@@ -92,7 +92,7 @@ git commit -m "feat(analyzer): add modular variable classification and summary m
 - Consumes: Verified variable names from `AnimalModuleReporter`, `RationOptimizer`, `LactationCurve`.
 - Produces: Exhaustive Output Data Dictionary section in `rufas-animal-specialist/SKILL.md` detailing time-series variables, units, frequency, and biological validation boundaries.
 
-- [ ] **Step 1: Write test verifying output documentation completeness in `rufas-animal-specialist`**
+- [x] **Step 1: Write test verifying output documentation completeness in `rufas-animal-specialist`**
 
 ```python
 # In tests/test_tooling.py
@@ -105,12 +105,12 @@ def test_animal_specialist_output_docs():
     assert "total_DMI_kg" in content or "DMI" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_animal_specialist_output_docs -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update `rufas-animal-specialist/SKILL.md` with simulation output catalog and diagnostic ranges**
+- [x] **Step 3: Update `rufas-animal-specialist/SKILL.md` with simulation output catalog and diagnostic ranges**
 
 Add comprehensive section `## Simulation Output Variable Dictionary`:
 - Table of primary `AnimalModuleReporter` population metrics (`population_number_of_cows`, `population_number_of_lactating_cows`, `population_number_of_calves`, parity distribution, average weights).
@@ -118,12 +118,12 @@ Add comprehensive section `## Simulation Output Variable Dictionary`:
 - Table of `RationOptimizer` & `LactationCurve` variables with units (`kg/cow-day`, `g/day`, `animals`, `unitless`).
 - Diagnostic validation rules: Expected ranges for Holstein herd DMI (20–28 kg DM/cow-day), daily milk yield (28–45 kg/cow-day), enteric CH4 (350–550 g CH4/cow-day).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_animal_specialist_output_docs -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-animal-specialist/SKILL.md tests/test_tooling.py
@@ -142,7 +142,7 @@ git commit -m "docs(skills): document animal module simulation output taxonomy a
 - Consumes: Verified variable names from `FieldDataReporter`, `FieldManager`, `Field`.
 - Produces: Exhaustive Output Data Dictionary section in `rufas-field-soil-specialist/SKILL.md` detailing multi-layer soil hydrology, soil carbon/nitrogen transformations, and crop yield metrics.
 
-- [ ] **Step 1: Write test verifying output documentation in `rufas-field-soil-specialist`**
+- [x] **Step 1: Write test verifying output documentation in `rufas-field-soil-specialist`**
 
 ```python
 # In tests/test_tooling.py
@@ -155,12 +155,12 @@ def test_field_soil_specialist_output_docs():
     assert "total_soil_carbon_amount" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_field_soil_specialist_output_docs -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update `rufas-field-soil-specialist/SKILL.md` with soil layer and field output catalog**
+- [x] **Step 3: Update `rufas-field-soil-specialist/SKILL.md` with soil layer and field output catalog**
 
 Add section `## Simulation Output Variable Dictionary`:
 - Field-level daily hydrology: `transpiration` (mm), `max_transpiration` (mm), `max_evapotranspiration` (mm), `current_residue` (kg/ha), `water_evaporated` (mm), `drainage` (mm).
@@ -168,12 +168,12 @@ Add section `## Simulation Output Variable Dictionary`:
 - Nitrogen cycle outputs: `nitrate_leached` (kg N/ha), `N2O_emissions` (kg N/ha), `ammonia_volatilization` (kg N/ha), `nitrification_rate`, `denitrification_rate`.
 - Crop growth & harvest: `GDD_accumulated`, `daily_biomass_gain` (kg DM/ha), `harvested_yield_DM` (kg/ha).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_field_soil_specialist_output_docs -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-field-soil-specialist/SKILL.md tests/test_tooling.py
@@ -291,7 +291,7 @@ git commit -m "docs(skills): document manure housing, separation, storage, and e
 - Consumes: Verified variable names from `EmissionsEstimator`, `Economy`, `Energy`.
 - Produces: Exhaustive Output Data Dictionary section in `rufas-eee-specialist/SKILL.md` detailing Scope 1-3 greenhouse gas accounting, Land Use Change (LUC) emissions, enterprise financial metrics, and machinery fuel totals.
 
-- [ ] **Step 1: Write test verifying output documentation in `rufas-eee-specialist`**
+- [x] **Step 1: Write test verifying output documentation in `rufas-eee-specialist`**
 
 ```python
 # In tests/test_tooling.py
@@ -304,12 +304,12 @@ def test_eee_specialist_output_docs():
     assert "land_use_change_emissions" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_eee_specialist_output_docs -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update `rufas-eee-specialist/SKILL.md` with Scope 1-3 lifecycle GHG and economic output catalog**
+- [x] **Step 3: Update `rufas-eee-specialist/SKILL.md` with Scope 1-3 lifecycle GHG and economic output catalog**
 
 Add section `## Simulation Output Variable Dictionary`:
 - Upstream purchased feed emissions: `EmissionsEstimator.calculate_purchased_feed_emissions.purchased_feed_emissions.{feed_id}` ($\text{kg CO}_2 / \text{kg DM}$) and `land_use_change_emissions.{feed_id}` ($\text{kg CO}_2 / \text{kg DM}$).
@@ -317,12 +317,12 @@ Add section `## Simulation Output Variable Dictionary`:
 - Enterprise financials: `annual_net_farm_income` ($), `IOFC_per_cwt` ($/cwt), `total_revenue_milk` ($), `total_feed_expenses` ($).
 - Energy budget: `diesel_fuel_liters_total` (L), `electricity_kwh_total` (kWh).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_eee_specialist_output_docs -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-eee-specialist/SKILL.md tests/test_tooling.py
@@ -387,7 +387,7 @@ git commit -m "docs(skills): update master rufas-specialist skill with full outp
 - Consumes: All 6 updated skills in `rufas-agentic-tooling/skills/`.
 - Produces: Verified skill distribution ready for installation into Antigravity, Claude Code, GitHub Copilot, and Cursor.
 
-- [ ] **Step 1: Write end-to-end test verifying all 6 skills pass structure, schema, and content validation**
+- [x] **Step 1: Write end-to-end test verifying all 6 skills pass structure, schema, and content validation**
 
 ```python
 # In tests/test_tooling.py
@@ -409,17 +409,17 @@ def test_all_skills_complete_and_valid():
         assert "## Simulation Output Variable Dictionary" in content or skill_name == "rufas-specialist"
 ```
 
-- [ ] **Step 2: Run full test suite to verify everything passes**
+- [x] **Step 2: Run full test suite to verify everything passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -v`
 Expected: PASS (all tests pass)
 
-- [ ] **Step 3: Run `install_skills.py` dry-run verification**
+- [x] **Step 3: Run `install_skills.py` dry-run verification**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && python3 tools/install_skills.py --target all --dry-run`
 Expected: All 6 skills recognized and valid for installation across all target AI CLI directories.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/test_tooling.py tools/install_skills.py

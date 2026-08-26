@@ -279,6 +279,7 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("annual_net_farm_income", content)
         self.assertIn("IOFC_per_cwt", content)
         self.assertIn("diesel_fuel_liters_total", content)
+
     def test_master_rufas_specialist_output_docs(self) -> None:
         """Verify master rufas specialist skill and reference guides contain full output hierarchy and diagnostics."""
         skill_path = PROJECT_ROOT / "skills" / "rufas-specialist" / "SKILL.md"
@@ -309,9 +310,50 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("264", ref_content)
         self.assertIn("134", ref_content)
 
+    def test_all_skills_complete_and_valid(self) -> None:
+        """Verify all 6 modular skills have valid YAML frontmatter, description, and output documentation."""
+        expected_skills = [
+            "rufas-specialist",
+            "rufas-animal-specialist",
+            "rufas-field-soil-specialist",
+            "rufas-feed-storage-specialist",
+            "rufas-manure-specialist",
+            "rufas-eee-specialist",
+        ]
+        skills_dir = PROJECT_ROOT / "skills"
+        for skill_name in expected_skills:
+            skill_file = skills_dir / skill_name / "SKILL.md"
+            self.assertTrue(skill_file.exists(), f"Missing {skill_file}")
+            content = skill_file.read_text(encoding="utf-8")
+            self.assertTrue(content.startswith("---"), f"Missing frontmatter in {skill_file}")
+            self.assertTrue(
+                "## Simulation Output Variable Dictionary" in content or skill_name == "rufas-specialist",
+                f"Missing Simulation Output Variable Dictionary in {skill_file}",
+            )
+            # Frontmatter validation
+            parts = content.split("---", 2)
+            self.assertGreaterEqual(len(parts), 3, f"{skill_name} invalid frontmatter structure")
+            frontmatter = parts[1]
+            self.assertIn(f"name: {skill_name}", frontmatter, f"{skill_name} frontmatter name mismatch")
+            self.assertIn("description:", frontmatter, f"{skill_name} missing description")
+
+    def test_install_skills_dry_run(self) -> None:
+        """Verify install_skills dry run validates all 6 skills without modifying target directory."""
+        import tempfile
+        from tools.install_skills import SKILLS, install_skills
+
+        skills_dir = PROJECT_ROOT / "skills"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_dir = Path(tmpdir) / "test_target"
+            count = install_skills(skills_dir, target_dir, dry_run=True)
+            self.assertEqual(count, len(SKILLS))
+            self.assertEqual(count, 6)
+            self.assertFalse(target_dir.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

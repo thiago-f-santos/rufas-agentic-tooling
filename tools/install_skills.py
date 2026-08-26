@@ -24,18 +24,22 @@ SKILLS = [
 ]
 
 
-def install_skills(source_dir: Path, target_dir: Path) -> int:
-    target_dir.mkdir(parents=True, exist_ok=True)
+def install_skills(source_dir: Path, target_dir: Path, dry_run: bool = False) -> int:
+    if not dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
     count = 0
     for skill_name in SKILLS:
         skill_src = source_dir / skill_name
-        if not skill_src.exists():
-            print(f"⚠️  Skill not found at: {skill_src}", file=sys.stderr)
+        if not skill_src.exists() or not (skill_src / "SKILL.md").exists():
+            print(f"⚠️  Skill not found or invalid at: {skill_src}", file=sys.stderr)
             continue
         skill_dest = target_dir / skill_name
-        if skill_dest.exists():
-            shutil.rmtree(skill_dest)
-        shutil.copytree(skill_src, skill_dest)
+        if dry_run:
+            print(f"  [DRY-RUN] Validated '{skill_name}' -> destination: {skill_dest}")
+        else:
+            if skill_dest.exists():
+                shutil.rmtree(skill_dest)
+            shutil.copytree(skill_src, skill_dest)
         count += 1
     return count
 
@@ -46,9 +50,16 @@ def main() -> None:
     )
     parser.add_argument(
         "--runtime",
+        "--target",
+        dest="runtime",
         choices=["all", "universal", "claude", "antigravity", "copilot", "custom"],
         default="all",
         help="Target AI CLI runtime (default: all)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Perform dry-run discovery and validation without copying files",
     )
     parser.add_argument(
         "--custom-path",
@@ -93,12 +104,18 @@ def main() -> None:
         repo_path = Path(args.project_repo).resolve()
         destinations.append((f"Project Repo ({repo_path}/.agents/skills)", repo_path / ".agents" / "skills"))
 
-    print("🚀 Installing RuFaS Specialist Skills Suite...\n")
-    for name, path in destinations:
-        installed = install_skills(skills_source, path)
-        print(f"✅ {name}: {installed} skills installed to `{path}`")
+    if args.dry_run:
+        print("🔍 [DRY-RUN] Discovering and validating RuFaS Specialist Skills Suite...\n")
+    else:
+        print("🚀 Installing RuFaS Specialist Skills Suite...\n")
 
-    print("\n🎉 Skills installation complete!")
+    for name, path in destinations:
+        installed = install_skills(skills_source, path, dry_run=args.dry_run)
+        action_verb = "validated for" if args.dry_run else "installed to"
+        print(f"✅ {name}: {installed}/{len(SKILLS)} skills {action_verb} `{path}`")
+
+    status_msg = "Skills validation complete!" if args.dry_run else "Skills installation complete!"
+    print(f"\n🎉 {status_msg}")
 
 
 if __name__ == "__main__":
