@@ -201,8 +201,69 @@ class TestRuFaSTooling(unittest.TestCase):
             self.assertIn("manure", mod_summary["modules"])
             self.assertIn("eee", mod_summary["modules"])
 
+    def test_animal_specialist_output_docs(self) -> None:
+        """Verify animal specialist skill documentation contains simulation output dictionary and validation rules."""
+        skill_path = PROJECT_ROOT / "skills" / "rufas-animal-specialist" / "SKILL.md"
+        self.assertTrue(skill_path.exists())
+        content = skill_path.read_text(encoding="utf-8")
+        self.assertIn("## Simulation Output Variable Dictionary", content)
+        self.assertIn("AnimalModuleReporter", content)
+        self.assertIn("population_number_of_cows", content)
+        self.assertTrue("total_DMI_kg" in content or "DMI" in content or "dry_matter_intake_total" in content)
+        self.assertIn("RationOptimizer", content)
+        self.assertIn("LactationCurve", content)
+
+    def test_field_soil_specialist_output_docs(self) -> None:
+        """Verify field & soil specialist skill documentation contains simulation output dictionary and validation rules."""
+        skill_path = PROJECT_ROOT / "skills" / "rufas-field-soil-specialist" / "SKILL.md"
+        self.assertTrue(skill_path.exists())
+        content = skill_path.read_text(encoding="utf-8")
+        self.assertIn("## Simulation Output Variable Dictionary", content)
+        self.assertIn("FieldDataReporter", content)
+        self.assertIn("transpiration", content)
+        self.assertIn("total_soil_carbon_amount", content)
+        self.assertIn("slow_carbon_amount", content)
+        self.assertIn("nitrate_leached", content)
+        self.assertIn("N2O_emissions", content)
+        self.assertIn("ammonia_volatilization", content)
+        self.assertIn("annual_carbon_CO2_lost", content)
+        self.assertIn("GDD_accumulated", content)
+        self.assertIn("daily_biomass_gain", content)
+        self.assertIn("harvested_yield_DM", content)
+
+
+    def test_manure_specialist_output_docs(self) -> None:
+        """Verify manure specialist skill documentation contains simulation output dictionary and validation rules."""
+        skill_path = PROJECT_ROOT / "skills" / "rufas-manure-specialist" / "SKILL.md"
+        self.assertTrue(skill_path.exists())
+        content = skill_path.read_text(encoding="utf-8")
+        self.assertIn("## Simulation Output Variable Dictionary", content)
+        self.assertIn("Manure.SingleStreamHandler", content)
+        self.assertIn("housing_CO2_emissions", content)
+        self.assertIn("manure_ammoniacal_nitrogen", content)
+        self.assertIn("Manure.Separator.ScrewPress", content)
+        self.assertIn("Manure.Storage.Composting", content)
+        self.assertIn("Manure.Storage.SlurryStorageOutdoor", content)
+        self.assertIn("ManureEventNutrientRequestResults", content)
+
+    def test_eee_specialist_output_docs(self) -> None:
+        """Verify EEE specialist skill documentation contains simulation output dictionary and diagnostic rules."""
+        skill_path = PROJECT_ROOT / "skills" / "rufas-eee-specialist" / "SKILL.md"
+        self.assertTrue(skill_path.exists())
+        content = skill_path.read_text(encoding="utf-8")
+        self.assertIn("## Simulation Output Variable Dictionary", content)
+        self.assertIn("EmissionsEstimator", content)
+        self.assertIn("purchased_feed_emissions", content)
+        self.assertIn("land_use_change_emissions", content)
+        self.assertIn("total_farm_ghg_co2e", content)
+        self.assertIn("carbon_intensity_fpcm", content)
+        self.assertIn("annual_net_farm_income", content)
+        self.assertIn("IOFC_per_cwt", content)
+        self.assertIn("diesel_fuel_liters_total", content)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
