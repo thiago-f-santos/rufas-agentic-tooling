@@ -192,7 +192,7 @@ git commit -m "feat(brain): implement simulation run and metric ingestion pipeli
 - Consumes: Multiple ingested `SimulationRun` records with varied parameters and metrics.
 - Produces: `compute_statistical_correlations(conn: kuzu.Connection, min_r: float = 0.5, max_p: float = 0.05) -> list[dict[str, Any]]` creating `:CORRELATES_WITH` edges in KùzuDB.
 
-- [ ] **Step 1: Write the failing test for correlation computation**
+- [x] **Step 1: Write the failing test for correlation computation**
 
 ```python
 # In tests/test_brain.py
@@ -208,24 +208,24 @@ def test_compute_statistical_correlations(tmp_path):
     assert isinstance(correlations, list)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_compute_statistical_correlations -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `compute_statistical_correlations` using SciPy stats in `tools/rufas_brain.py`**
+- [x] **Step 3: Implement `compute_statistical_correlations` using SciPy stats in `tools/rufas_brain.py`**
 
 Compute Pearson $r$, Spearman $\rho$, and two-tailed p-values, filter for significant relationships, and batch-insert `:CORRELATES_WITH` edges into KùzuDB.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_compute_statistical_correlations -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add tools/rufas_brain.py tests/test_brain.py
+git add tools/rufas_brain.py tests/test_brain.py docs/superpowers/plans/2026-08-26-rufas-graph-memory-brain.md
 git commit -m "feat(brain): implement cross-run statistical correlation engine"
 ```
 

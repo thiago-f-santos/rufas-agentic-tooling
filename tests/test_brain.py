@@ -11,6 +11,7 @@ from tools.rufas_brain import (
     init_brain_database,
     populate_structural_ontology,
     ingest_simulation_run,
+    compute_statistical_correlations,
 )
 
 
@@ -225,5 +226,200 @@ def test_ingest_cli(tmp_path, monkeypatch, capsys):
     main()
     captured = capsys.readouterr()
     assert "ingested successfully" in captured.out
+
+
+def test_compute_statistical_correlations_synthetic(tmp_path):
+    db_dir = str(tmp_path / "test_corr.kuzu")
+    conn = init_brain_database(db_dir)
+
+    # Create synthetic input parameters and output variables
+    conn.execute("CREATE (p:InputParameter {id: 'animal.herd_information.cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'animals', default_value: '100', description: 'Herd size'})")
+    conn.execute("CREATE (p:InputParameter {id: 'animal.mature_body_weight', blob_name: 'animal', param_name: 'mature_body_weight', data_type: 'float', unit: 'kg', default_value: '650.0', description: 'Body weight'})")
+    conn.execute("CREATE (p:InputParameter {id: 'animal.constant_param', blob_name: 'animal', param_name: 'constant_param', data_type: 'float', unit: '%', default_value: '5.0', description: 'Constant parameter'})")
+
+    conn.execute("CREATE (v:OutputVariable {name: 'AnimalModuleReporter.daily_milk_production (kg/day)', module: 'animal', unit: 'kg/day', category: 'production', reporter_class: 'AnimalReporter', description: 'Milk output'})")
+    conn.execute("CREATE (v:OutputVariable {name: 'AnimalModuleReporter.feed_efficiency (kg/kg)', module: 'animal', unit: 'kg/kg', category: 'production', reporter_class: 'AnimalReporter', description: 'Efficiency'})")
+    conn.execute("CREATE (v:OutputVariable {name: 'GeneralReporter.constant_metric', module: 'general', unit: '', category: 'general', reporter_class: 'GeneralReporter', description: 'Constant metric'})")
+
+    # Create 5 synthetic simulation runs
+    cow_vals = [50, 100, 150, 200, 250]
+    mbw_vals = [500.0, 550.0, 600.0, 650.0, 700.0]
+    const_val = 5.0
+
+    for i in range(5):
+        run_id = f"run_{i+1}"
+        conn.execute(
+            "CREATE (r:SimulationRun {run_id: $rid, scenario_name: 'freestall', execution_date: '2026-08-26', start_date: '2013:1', end_date: '2013:60', duration_days: 60, random_seed: 42, status: 'completed'})",
+            {"rid": run_id},
+        )
+        # Link parameters
+        conn.execute(
+            "MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'animal.herd_information.cow_num'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)",
+            {"rid": run_id, "val": str(cow_vals[i])},
+        )
+        conn.execute(
+            "MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'animal.mature_body_weight'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)",
+            {"rid": run_id, "val": str(mbw_vals[i])},
+        )
+        conn.execute(
+            "MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'animal.constant_param'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)",
+            {"rid": run_id, "val": str(const_val)},
+        )
+
+        # Output metrics:
+        # daily_milk: perfectly positively correlated with cow_num (30.0 * cow_num)
+        # feed_efficiency: negatively correlated with cow_num (2.5 - 0.005 * cow_num)
+        # constant_metric: constant 100.0 across all runs
+        milk_val = 30.0 * cow_vals[i]
+        fe_val = 2.5 - 0.005 * cow_vals[i]
+        const_metric_val = 100.0
+
+        # Create RunMetric nodes & edges
+        conn.execute(
+            """
+            MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'AnimalModuleReporter.daily_milk_production (kg/day)'})
+            CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'AnimalModuleReporter.daily_milk_production (kg/day)', mean_val: $mean, min_val: $mean, max_val: $mean, sum_val: $mean, non_null_count: 60})
+            CREATE (r)-[:GENERATED_METRIC]->(rm)
+            CREATE (rm)-[:OF_VARIABLE]->(v)
+            """,
+            {"rid": run_id, "mid": f"{run_id}::milk", "mean": milk_val},
+        )
+        conn.execute(
+            """
+            MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'AnimalModuleReporter.feed_efficiency (kg/kg)'})
+            CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'AnimalModuleReporter.feed_efficiency (kg/kg)', mean_val: $mean, min_val: $mean, max_val: $mean, sum_val: $mean, non_null_count: 60})
+            CREATE (r)-[:GENERATED_METRIC]->(rm)
+            CREATE (rm)-[:OF_VARIABLE]->(v)
+            """,
+            {"rid": run_id, "mid": f"{run_id}::fe", "mean": fe_val},
+        )
+        conn.execute(
+            """
+            MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'GeneralReporter.constant_metric'})
+            CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'GeneralReporter.constant_metric', mean_val: $mean, min_val: $mean, max_val: $mean, sum_val: $mean, non_null_count: 60})
+            CREATE (r)-[:GENERATED_METRIC]->(rm)
+            CREATE (rm)-[:OF_VARIABLE]->(v)
+            """,
+            {"rid": run_id, "mid": f"{run_id}::const", "mean": const_metric_val},
+        )
+
+    correlations = compute_statistical_correlations(conn, min_r=0.5, max_p=0.05, min_samples=3)
+    assert isinstance(correlations, list)
+    assert len(correlations) >= 2
+
+    # Check positive correlation: cow_num -> daily_milk_production
+    pos_corr = next((c for c in correlations if c["param_id"] == "animal.herd_information.cow_num" and "daily_milk_production" in c["var_name"]), None)
+    assert pos_corr is not None
+    assert pos_corr["pearson_r"] > 0.99
+    assert pos_corr["spearman_r"] > 0.99
+    assert pos_corr["p_value"] < 0.01
+    assert pos_corr["sample_size"] == 5
+
+    # Check negative correlation: cow_num -> feed_efficiency
+    neg_corr = next((c for c in correlations if c["param_id"] == "animal.herd_information.cow_num" and "feed_efficiency" in c["var_name"]), None)
+    assert neg_corr is not None
+    assert neg_corr["pearson_r"] < -0.99
+    assert neg_corr["spearman_r"] < -0.99
+    assert neg_corr["p_value"] < 0.01
+
+    # Verify constant parameter and constant metric produced no correlations
+    const_p_corr = [c for c in correlations if c["param_id"] == "animal.constant_param"]
+    assert len(const_p_corr) == 0
+    const_m_corr = [c for c in correlations if "constant_metric" in c["var_name"]]
+    assert len(const_m_corr) == 0
+
+    # Verify CORRELATES_WITH edges in KuzuDB
+    edge_res = conn.execute("MATCH (p:InputParameter)-[c:CORRELATES_WITH]->(v:OutputVariable) RETURN p.id, v.name, c.pearson_r, c.spearman_r, c.p_value, c.sample_size").get_as_df()
+    assert len(edge_res) >= 2
+    assert "animal.herd_information.cow_num" in edge_res["p.id"].values
+
+
+def test_compute_correlations_cli(tmp_path, monkeypatch, capsys):
+    from tools.rufas_brain import main
+    db_dir = str(tmp_path / "cli_corr.kuzu")
+    conn = init_brain_database(db_dir)
+
+    # Insert synthetic nodes and runs
+    conn.execute("CREATE (p:InputParameter {id: 'cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: '', default_value: '100', description: ''})")
+    conn.execute("CREATE (v:OutputVariable {name: 'milk_yield', module: 'animal', unit: 'kg', category: 'production', reporter_class: 'AnimalReporter', description: ''})")
+
+    for i in range(4):
+        rid = f"run_{i}"
+        conn.execute("CREATE (r:SimulationRun {run_id: $rid, scenario_name: 's', execution_date: '', start_date: '', end_date: '', duration_days: 10, random_seed: 0, status: 'completed'})", {"rid": rid})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'cow_num'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)", {"rid": rid, "val": str(50 * (i + 1))})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'milk_yield'}) CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'milk_yield', mean_val: $val, min_val: 0.0, max_val: 0.0, sum_val: 0.0, non_null_count: 10}) CREATE (r)-[:GENERATED_METRIC]->(rm) CREATE (rm)-[:OF_VARIABLE]->(v)", {"rid": rid, "mid": f"{rid}::m", "val": float(1000 * (i + 1))})
+
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "compute-correlations", "--db-path", db_dir, "--min-r", "0.5", "--max-p", "0.05", "--min-samples", "3"])
+    main()
+    captured = capsys.readouterr()
+    assert "Correlations computed" in captured.out or "Found" in captured.out or "cow_num" in captured.out
+
+
+def test_compute_correlations_nonlinear_monotonic(tmp_path):
+    import math
+    db_dir = str(tmp_path / "nonlin_corr.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (p:InputParameter {id: 'param_x', blob_name: 'test', param_name: 'param_x', data_type: 'float', unit: '', default_value: '1.0', description: ''})")
+    conn.execute("CREATE (v:OutputVariable {name: 'var_exp', module: 'test', unit: '', category: '', reporter_class: '', description: ''})")
+
+    # 5 runs with exponential relationship y = exp(x)
+    for x in [1.0, 2.0, 3.0, 4.0, 5.0]:
+        rid = f"run_{int(x)}"
+        y = math.exp(x)
+        conn.execute("CREATE (r:SimulationRun {run_id: $rid, scenario_name: 'exp_test', execution_date: '', start_date: '', end_date: '', duration_days: 10, random_seed: 0, status: 'completed'})", {"rid": rid})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'param_x'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)", {"rid": rid, "val": str(x)})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'var_exp'}) CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'var_exp', mean_val: $val, min_val: $val, max_val: $val, sum_val: $val, non_null_count: 10}) CREATE (r)-[:GENERATED_METRIC]->(rm) CREATE (rm)-[:OF_VARIABLE]->(v)", {"rid": rid, "mid": f"{rid}::exp", "val": y})
+
+    corrs = compute_statistical_correlations(conn, min_r=0.5, max_p=0.05, min_samples=3)
+    assert len(corrs) == 1
+    assert corrs[0]["param_id"] == "param_x"
+    assert corrs[0]["var_name"] == "var_exp"
+    assert corrs[0]["spearman_r"] == pytest.approx(1.0)
+    assert corrs[0]["pearson_r"] > 0.8
+    assert corrs[0]["p_value"] < 0.05
+
+
+def test_compute_correlations_empty_and_insufficient_samples(tmp_path):
+    db_dir = str(tmp_path / "empty_corr.kuzu")
+    conn = init_brain_database(db_dir)
+
+    # Empty DB
+    assert compute_statistical_correlations(conn) == []
+
+    # 2 runs with min_samples=3
+    conn.execute("CREATE (p:InputParameter {id: 'p1', blob_name: '', param_name: 'p1', data_type: 'int', unit: '', default_value: '1', description: ''})")
+    conn.execute("CREATE (v:OutputVariable {name: 'v1', module: '', unit: '', category: '', reporter_class: '', description: ''})")
+    for i in range(2):
+        rid = f"run_{i}"
+        conn.execute("CREATE (r:SimulationRun {run_id: $rid, scenario_name: 's', execution_date: '', start_date: '', end_date: '', duration_days: 10, random_seed: 0, status: 'completed'})", {"rid": rid})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'p1'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)", {"rid": rid, "val": str(i + 1)})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'v1'}) CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'v1', mean_val: $val, min_val: 0.0, max_val: 0.0, sum_val: 0.0, non_null_count: 10}) CREATE (r)-[:GENERATED_METRIC]->(rm) CREATE (rm)-[:OF_VARIABLE]->(v)", {"rid": rid, "mid": f"{rid}::m", "val": float(i + 1)})
+
+    assert compute_statistical_correlations(conn, min_samples=3) == []
+
+
+def test_compute_correlations_idempotent(tmp_path):
+    db_dir = str(tmp_path / "idem_corr.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (p:InputParameter {id: 'p1', blob_name: '', param_name: 'p1', data_type: 'int', unit: '', default_value: '1', description: ''})")
+    conn.execute("CREATE (v:OutputVariable {name: 'v1', module: '', unit: '', category: '', reporter_class: '', description: ''})")
+    for i in range(4):
+        rid = f"run_{i}"
+        conn.execute("CREATE (r:SimulationRun {run_id: $rid, scenario_name: 's', execution_date: '', start_date: '', end_date: '', duration_days: 10, random_seed: 0, status: 'completed'})", {"rid": rid})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'p1'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)", {"rid": rid, "val": str(i + 1)})
+        conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'v1'}) CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'v1', mean_val: $val, min_val: 0.0, max_val: 0.0, sum_val: 0.0, non_null_count: 10}) CREATE (r)-[:GENERATED_METRIC]->(rm) CREATE (rm)-[:OF_VARIABLE]->(v)", {"rid": rid, "mid": f"{rid}::m", "val": float(i + 1)})
+
+    # Compute twice
+    corrs1 = compute_statistical_correlations(conn, min_samples=3)
+    corrs2 = compute_statistical_correlations(conn, min_samples=3)
+    assert len(corrs1) == len(corrs2) == 1
+
+    # Verify only 1 edge exists
+    edge_count = conn.execute("MATCH (p:InputParameter)-[c:CORRELATES_WITH]->(v:OutputVariable) RETURN count(c)").get_next()[0]
+    assert edge_count == 1
+
+
 
 

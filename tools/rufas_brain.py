@@ -849,6 +849,200 @@ def ingest_simulation_run(
     return summary
 
 
+def compute_statistical_correlations(
+    conn: kuzu.Connection,
+    min_r: float = 0.5,
+    max_p: float = 0.05,
+    min_samples: int = 3,
+) -> List[Dict[str, Any]]:
+    """
+    Computes Pearson and Spearman correlation statistics between InputParameters and OutputVariables
+    across all ingested SimulationRun records in KùzuDB.
+
+    Filters for statistically significant relationships (|r| >= min_r or |rho| >= min_r) with p <= max_p
+    and sample_size >= min_samples, and batch-inserts/updates :CORRELATES_WITH edges into KùzuDB.
+
+    Args:
+        conn: Initialized KùzuDB connection.
+        min_r: Minimum absolute correlation threshold (default: 0.5).
+        max_p: Maximum p-value threshold for significance (default: 0.05).
+        min_samples: Minimum number of simulation runs with valid data required (default: 3).
+
+    Returns:
+        List of correlation dicts with keys:
+            - param_id (str)
+            - var_name (str)
+            - pearson_r (float)
+            - spearman_r (float)
+            - p_value (float)
+            - sample_size (int)
+    """
+    import math
+    import warnings
+    import numpy as np
+    import pandas as pd
+    import scipy.stats as stats
+
+    logger.info(
+        "Computing statistical correlations across simulation runs (min_r=%s, max_p=%s, min_samples=%s)...",
+        min_r,
+        max_p,
+        min_samples,
+    )
+
+    # 1. Query parameters simulated with runs
+    df_params = conn.execute(
+        "MATCH (r:SimulationRun)-[s:SIMULATED_WITH]->(p:InputParameter) RETURN r.run_id AS run_id, p.id AS param_id, s.value AS param_val"
+    ).get_as_df()
+
+    # 2. Query output metrics from runs
+    df_metrics = conn.execute(
+        "MATCH (r:SimulationRun)-[:GENERATED_METRIC]->(rm:RunMetric)-[:OF_VARIABLE]->(v:OutputVariable) RETURN r.run_id AS run_id, v.name AS var_name, rm.mean_val AS mean_val"
+    ).get_as_df()
+
+    if df_params.empty or df_metrics.empty:
+        logger.info("No parameters or metrics found in database to correlate.")
+        return []
+
+    # Convert parameter values to numeric floats, dropping non-numeric/text values
+    df_params["numeric_val"] = pd.to_numeric(df_params["param_val"], errors="coerce")
+    df_params_clean = df_params.dropna(subset=["numeric_val"])
+
+    if df_params_clean.empty:
+        logger.info("No numeric parameter values found in database.")
+        return []
+
+    # 3. Identify parameters with variance > 0 and sample count >= min_samples
+    param_groups = df_params_clean.groupby("param_id")
+    varying_params: Dict[str, Dict[str, float]] = {}
+    for pid, group in param_groups:
+        if len(group) >= min_samples:
+            vals = group["numeric_val"].to_numpy(dtype=float)
+            if np.var(vals) > 1e-12 and len(np.unique(vals)) > 1:
+                varying_params[pid] = dict(zip(group["run_id"], group["numeric_val"]))
+
+    if not varying_params:
+        logger.info("No varying parameters found across runs.")
+        return []
+
+    # 4. Identify variables with variance > 0 and sample count >= min_samples
+    metric_groups = df_metrics.dropna(subset=["mean_val"]).groupby("var_name")
+    varying_metrics: Dict[str, Dict[str, float]] = {}
+    for vname, group in metric_groups:
+        if len(group) >= min_samples:
+            vals = group["mean_val"].to_numpy(dtype=float)
+            if np.var(vals) > 1e-12 and len(np.unique(vals)) > 1:
+                varying_metrics[vname] = dict(zip(group["run_id"], group["mean_val"]))
+
+    if not varying_metrics:
+        logger.info("No varying output variables found across runs.")
+        return []
+
+    logger.info(
+        "Analyzing %d varying parameters against %d varying variables...",
+        len(varying_params),
+        len(varying_metrics),
+    )
+
+    # 5. Compute correlations for each (param, var) pair
+    significant_correlations: List[Dict[str, Any]] = []
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for pid, p_runs in varying_params.items():
+            for vname, v_runs in varying_metrics.items():
+                common_runs = set(p_runs.keys()) & set(v_runs.keys())
+                if len(common_runs) < min_samples:
+                    continue
+
+                x = np.array([p_runs[r] for r in common_runs], dtype=float)
+                y = np.array([v_runs[r] for r in common_runs], dtype=float)
+
+                var_x = float(np.var(x))
+                var_y = float(np.var(y))
+                if var_x <= 1e-12 or var_y <= 1e-12:
+                    continue
+
+                try:
+                    p_res = stats.pearsonr(x, y)
+                    r_val = float(p_res.statistic)
+                    p_pearson = float(p_res.pvalue)
+                except Exception:
+                    r_val, p_pearson = 0.0, 1.0
+
+                try:
+                    s_res = stats.spearmanr(x, y)
+                    rho_val = float(s_res.statistic)
+                    p_spearman = float(s_res.pvalue)
+                except Exception:
+                    rho_val, p_spearman = 0.0, 1.0
+
+                if math.isnan(r_val):
+                    r_val = 0.0
+                    p_pearson = 1.0
+                if math.isnan(rho_val):
+                    rho_val = 0.0
+                    p_spearman = 1.0
+                if math.isnan(p_pearson):
+                    p_pearson = 1.0
+                if math.isnan(p_spearman):
+                    p_spearman = 1.0
+
+                pearson_sig = (abs(r_val) >= min_r) and (p_pearson <= max_p)
+                spearman_sig = (abs(rho_val) >= min_r) and (p_spearman <= max_p)
+
+                if pearson_sig or spearman_sig:
+                    if pearson_sig and spearman_sig:
+                        p_val = min(p_pearson, p_spearman)
+                    elif pearson_sig:
+                        p_val = p_pearson
+                    else:
+                        p_val = p_spearman
+
+                    significant_correlations.append({
+                        "param_id": pid,
+                        "var_name": vname,
+                        "pearson_r": r_val,
+                        "spearman_r": rho_val,
+                        "p_value": p_val,
+                        "sample_size": len(common_runs),
+                    })
+
+    logger.info("Found %d statistically significant correlations.", len(significant_correlations))
+
+    # 6. Batch upsert [:CORRELATES_WITH] edges into KùzuDB
+    upsert_edge_query = """
+    MATCH (p:InputParameter {id: $pid}), (v:OutputVariable {name: $vname})
+    MERGE (p)-[c:CORRELATES_WITH]->(v)
+    ON CREATE SET
+        c.pearson_r = $pearson_r,
+        c.spearman_r = $spearman_r,
+        c.p_value = $p_value,
+        c.sample_size = $sample_size
+    ON MATCH SET
+        c.pearson_r = $pearson_r,
+        c.spearman_r = $spearman_r,
+        c.p_value = $p_value,
+        c.sample_size = $sample_size
+    """
+
+    for corr in significant_correlations:
+        conn.execute(
+            upsert_edge_query,
+            {
+                "pid": corr["param_id"],
+                "vname": corr["var_name"],
+                "pearson_r": corr["pearson_r"],
+                "spearman_r": corr["spearman_r"],
+                "p_value": corr["p_value"],
+                "sample_size": corr["sample_size"],
+            },
+        )
+
+    significant_correlations.sort(key=lambda item: abs(item["pearson_r"]), reverse=True)
+    return significant_correlations
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RuFaS Graph Memory Brain & Correlation Engine CLI",
@@ -897,6 +1091,32 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
+    corr_parser = subparsers.add_parser("compute-correlations", help="Compute statistical cross-run correlations")
+    corr_parser.add_argument(
+        "--min-r",
+        type=float,
+        default=0.5,
+        help="Minimum absolute correlation coefficient threshold (default: 0.5)",
+    )
+    corr_parser.add_argument(
+        "--max-p",
+        type=float,
+        default=0.05,
+        help="Maximum p-value threshold for statistical significance (default: 0.05)",
+    )
+    corr_parser.add_argument(
+        "--min-samples",
+        type=int,
+        default=3,
+        help="Minimum number of simulation runs required (default: 3)",
+    )
+    corr_parser.add_argument(
+        "--db-path",
+        type=str,
+        default="data/rufas_brain.kuzu",
+        help="Path to KùzuDB database folder",
+    )
+
     args = parser.parse_args()
     if args.subcommand == "init":
         conn = init_brain_database(args.db_path)
@@ -913,6 +1133,17 @@ def main() -> None:
         )
         print(f"Simulation run '{args.run_id}' ingested successfully.")
         print(f"Ingestion summary: {summary}")
+    elif args.subcommand == "compute-correlations":
+        conn = init_brain_database(args.db_path)
+        corrs = compute_statistical_correlations(
+            conn,
+            min_r=args.min_r,
+            max_p=args.max_p,
+            min_samples=args.min_samples,
+        )
+        print(f"Correlations computed: Found {len(corrs)} significant relationships (|r| >= {args.min_r}, p <= {args.max_p}).")
+        for c in corrs[:20]:
+            print(f"  • {c['param_id']} -> {c['var_name']}: Pearson r={c['pearson_r']:.3f}, Spearman rho={c['spearman_r']:.3f}, p={c['p_value']:.4e} (N={c['sample_size']})")
     else:
         parser.print_help()
 
