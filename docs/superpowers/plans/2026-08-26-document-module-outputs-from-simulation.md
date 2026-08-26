@@ -192,7 +192,7 @@ git commit -m "docs(skills): document field and soil simulation output taxonomy 
 - Consumes: Verified variable names from `FeedManager` and `PurchasedFeedStorage`.
 - Produces: Exhaustive Output Data Dictionary section in `rufas-feed-storage-specialist/SKILL.md` detailing feed storage inventory, degradation losses, purchased feed volumes, and daily fulfillment logs.
 
-- [ ] **Step 1: Write test verifying output documentation in `rufas-feed-storage-specialist`**
+- [x] **Step 1: Write test verifying output documentation in `rufas-feed-storage-specialist`**
 
 ```python
 # In tests/test_tooling.py
@@ -204,12 +204,12 @@ def test_feed_storage_specialist_output_docs():
     assert "amount_purchased" in content or "ration_interval" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_feed_storage_specialist_output_docs -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update `rufas-feed-storage-specialist/SKILL.md` with feed storage inventory and purchase metrics**
+- [x] **Step 3: Update `rufas-feed-storage-specialist/SKILL.md` with feed storage inventory and purchase metrics**
 
 Add section `## Simulation Output Variable Dictionary`:
 - Feed purchasing time-series: `FeedManager.purchase_feed.ration_interval_{feed_id}_amount_purchased` (kg DM), `ration_interval_{feed_id}_cost` ($) for each purchased commodity (e.g. 202, 216, 44, 50, 95, 104, 110, 302).
@@ -217,12 +217,12 @@ Add section `## Simulation Output Variable Dictionary`:
 - Spoilage & degradation outputs: `aerobic_face_loss_DM` (kg/day), `fermentation_loss_DM` (kg), `total_shrinkage` (kg).
 - Daily ration fulfillment: `is_ok_to_feed` (boolean), emergency purchase triggers, feed allocation discrepancies.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_feed_storage_specialist_output_docs -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-feed-storage-specialist/SKILL.md tests/test_tooling.py
