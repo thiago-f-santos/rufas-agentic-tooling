@@ -32,7 +32,7 @@
 - Consumes: Database path string (e.g. `data/rufas_brain.kuzu` or `:memory:`).
 - Produces: `init_brain_database(db_path: str = "data/rufas_brain.kuzu") -> kuzu.Connection` initializing all 6 Node tables and 7 Relationship tables in KùzuDB.
 
-- [ ] **Step 1: Write the failing test for schema initialization**
+- [x] **Step 1: Write the failing test for schema initialization**
 
 ```python
 # In tests/test_brain.py
@@ -50,21 +50,21 @@ def test_init_brain_database(tmp_path):
     assert res[0] == 0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_init_brain_database -v`
 Expected: FAIL with `ModuleNotFoundError` or `ImportError`
 
-- [ ] **Step 3: Implement dependencies, .gitignore, and `init_brain_database` in `tools/rufas_brain.py`**
+- [x] **Step 3: Implement dependencies, .gitignore, and `init_brain_database` in `tools/rufas_brain.py`**
 
 Add `kuzu>=0.11.3` to `pyproject.toml`, add `data/*.kuzu` and `vault/` to `.gitignore`, and write `tools/rufas_brain.py` with DDL statements creating `Module`, `ConfigBlob`, `InputParameter`, `OutputVariable`, `SimulationRun`, `RunMetric` node tables and all relationship tables.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml .gitignore tools/rufas_brain.py tests/test_brain.py
