@@ -16,7 +16,12 @@ from tools.rufas_inspector import (
     inspect_scenario_metadata,
     inspect_task_metadata,
 )
-from tools.rufas_analyzer import summarize_output_directory
+from tools.rufas_analyzer import (
+    categorize_variable_name,
+    extract_variable_unit,
+    summarize_modular_variables,
+    summarize_output_directory,
+)
 
 
 class TestRuFaSTooling(unittest.TestCase):
@@ -99,6 +104,105 @@ class TestRuFaSTooling(unittest.TestCase):
             )
             self.assertLessEqual(len(desc_text), 500, f"{skill_name} description exceeds 500 chars")
 
+    def test_rufas_analyzer_modular_categorization(self) -> None:
+        """Verify variable column names are categorized into correct biophysical/economic modules."""
+        self.assertEqual(
+            categorize_variable_name(
+                "AnimalModuleReporter.report_animal_population_statistics.population_number_of_cows (animals)"
+            ),
+            "animal",
+        )
+        self.assertEqual(
+            categorize_variable_name(
+                "FieldDataReporter.send_soil_daily_variables.water_evaporated.field='field_1' (mm)"
+            ),
+            "field_soil",
+        )
+        self.assertEqual(
+            categorize_variable_name("FeedManager.purchase_feed.ration_interval_202_cost ($)"),
+            "feed_storage",
+        )
+        self.assertEqual(
+            categorize_variable_name(
+                "Manure.SingleStreamHandler.AlleyScraper.lac_alley_scraper.housing_CO2_emissions (kg)"
+            ),
+            "manure",
+        )
+        self.assertEqual(
+            categorize_variable_name(
+                "EmissionsEstimator.calculate_purchased_feed_emissions.purchased_feed_emissions.44 (kg CO2 / kg DM)"
+            ),
+            "eee",
+        )
+        self.assertEqual(
+            categorize_variable_name("Weather.precipitation (mm)"),
+            "general",
+        )
+
+    def test_rufas_analyzer_extract_unit(self) -> None:
+        """Verify extraction of unit from column names in trailing parentheses."""
+        self.assertEqual(extract_variable_unit("Weather.irrigation (mm)"), "mm")
+        self.assertEqual(extract_variable_unit("FeedManager.cost ($)"), "$")
+        self.assertEqual(
+            extract_variable_unit(
+                "EmissionsEstimator.calculate_purchased_feed_emissions.44 (kg CO2 / kg DM)"
+            ),
+            "kg CO2 / kg DM",
+        )
+        self.assertIsNone(extract_variable_unit("DISCLAIMER"))
+
+    def test_rufas_analyzer_modular_summary(self) -> None:
+        """Verify summarize_modular_variables and summarize_output_directory per-module parsing."""
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "AnimalModuleReporter.cows (animals)": [100.0, 110.0, 120.0],
+                "FieldDataReporter.drainage (mm)": [5.0, 10.0, 15.0],
+                "FeedManager.feed_cost ($)": [200.0, 250.0, 300.0],
+                "Manure.housing_CO2_emissions (kg)": [10.0, 20.0, 30.0],
+                "EmissionsEstimator.purchased_feed_emissions (kg CO2 / kg DM)": [1.5, 2.0, 2.5],
+                "Weather.precipitation (mm)": [0.0, 5.0, 2.0],
+            }
+        )
+
+        mod_summary = summarize_modular_variables(df)
+        self.assertEqual(mod_summary["total_variables"], 6)
+        self.assertEqual(mod_summary["modules"]["animal"]["total_variables"], 1)
+        self.assertEqual(mod_summary["modules"]["field_soil"]["total_variables"], 1)
+        self.assertEqual(mod_summary["modules"]["feed_storage"]["total_variables"], 1)
+        self.assertEqual(mod_summary["modules"]["manure"]["total_variables"], 1)
+        self.assertEqual(mod_summary["modules"]["eee"]["total_variables"], 1)
+        self.assertEqual(mod_summary["modules"]["general"]["total_variables"], 1)
+
+        animal_var = mod_summary["modules"]["animal"]["variables"][0]
+        self.assertEqual(animal_var["name"], "AnimalModuleReporter.cows (animals)")
+        self.assertEqual(animal_var["unit"], "animals")
+        self.assertEqual(animal_var["mean"], 110.0)
+        self.assertEqual(animal_var["min"], 100.0)
+        self.assertEqual(animal_var["max"], 120.0)
+        self.assertEqual(animal_var["non_null_count"], 3)
+
+    def test_rufas_analyzer_on_rufas_output_dir(self) -> None:
+        """Verify summarize_output_directory extracts modular statistics on simulation output directory."""
+        output_dir = self.rufas_root / "output"
+        if not output_dir.exists():
+            self.skipTest(f"RuFaS output directory not found at {output_dir}")
+
+        summary = summarize_output_directory(output_dir)
+        self.assertFalse(summary["errors_detected"])
+        if summary["csv_files_found"]:
+            self.assertIn("modular_summary", summary)
+            mod_summary = summary["modular_summary"]
+            self.assertGreater(mod_summary["total_variables"], 0)
+            self.assertIn("animal", mod_summary["modules"])
+            self.assertIn("field_soil", mod_summary["modules"])
+            self.assertIn("feed_storage", mod_summary["modules"])
+            self.assertIn("manure", mod_summary["modules"])
+            self.assertIn("eee", mod_summary["modules"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
