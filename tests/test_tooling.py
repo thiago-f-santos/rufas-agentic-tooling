@@ -364,6 +364,24 @@ class TestRuFaSTooling(unittest.TestCase):
             self.assertFalse(target_dir.exists())
 
 
+    def test_obsidian_producer_documentation(self) -> None:
+        """Verify obsidian producer reference guide exists and contains setup and workflow instructions."""
+        ref_file = (
+            PROJECT_ROOT
+            / "skills"
+            / "rufas-brain-specialist"
+            / "references"
+            / "obsidian-knowledge-graph.md"
+        )
+        self.assertTrue(ref_file.exists(), "Missing obsidian-knowledge-graph.md reference guide")
+        content = ref_file.read_text(encoding="utf-8")
+        self.assertIn("Obsidian Knowledge Graph Production Guide", content)
+        self.assertIn("rufas-brain export-obsidian", content)
+        self.assertIn("Dataview", content)
+        self.assertIn("Graph View", content)
+        self.assertIn("Canvas", content)
+
+
 if __name__ == "__main__":
     unittest.main()
 
