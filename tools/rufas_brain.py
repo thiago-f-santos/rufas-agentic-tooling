@@ -6,12 +6,14 @@ statistical cross-run correlations, and Obsidian knowledge graph export.
 """
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import kuzu
+import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("rufas_brain")
@@ -1043,6 +1045,257 @@ def compute_statistical_correlations(
     return significant_correlations
 
 
+def execute_cypher_query(conn: kuzu.Connection, query: str) -> List[Dict[str, Any]]:
+    """
+    Executes an OpenCypher query on the KùzuDB connection and returns the results as a list of dictionaries.
+
+    Args:
+        conn: Initialized KùzuDB connection.
+        query: OpenCypher query string.
+
+    Returns:
+        List of row dicts mapping column names to cell values.
+    """
+    logger.debug("Executing OpenCypher query: %s", query)
+    result = conn.execute(query)
+    try:
+        df = result.get_as_df()
+        return df.where(pd.notnull(df), None).to_dict(orient="records")
+    except Exception:
+        cols = result.get_column_names() if hasattr(result, "get_column_names") else []
+        rows: List[Dict[str, Any]] = []
+        while result.has_next():
+            row = result.get_next()
+            if cols:
+                rows.append(dict(zip(cols, row)))
+            else:
+                rows.append({"result": row})
+        return rows
+
+
+def trace_parameter_impact(conn: kuzu.Connection, param_query: str) -> Dict[str, Any]:
+    """
+    Traces the causal biophysical pathways and empirical statistical correlations for input parameters
+    matching a query substring.
+
+    Searches InputParameter nodes matching param_query (case-insensitive substring on id or param_name).
+    Retrieves all causally influenced OutputVariable nodes via [:CAUSALLY_INFLUENCES].
+    Retrieves all statistically correlated OutputVariable nodes via [:CORRELATES_WITH].
+
+    Args:
+        conn: Initialized KùzuDB connection.
+        param_query: Parameter name or ID substring to search for.
+
+    Returns:
+        Structured dict with keys:
+            - param_query: Original search string
+            - matched_parameters_count: Total parameters matching query
+            - parameters: Detailed list per matched parameter with:
+                - id, param_name, blob_name, data_type, unit, default_value, description
+                - causal_pathways: List of causally influenced output variables (with pathway & mechanism)
+                - correlations: List of empirically correlated output variables (with r, rho, p_value, sample_size)
+            - causal_pathways: Aggregated list of all causal pathways found across matched parameters
+            - correlations: Aggregated list of all correlations found across matched parameters (sorted by |r| desc)
+    """
+    clean_query = param_query.strip().lower()
+
+    # 1. Fetch matching parameters
+    params_df = conn.execute(
+        """
+        MATCH (p:InputParameter)
+        WHERE lower(p.id) CONTAINS $query OR lower(p.param_name) CONTAINS $query
+        RETURN p.id AS id, p.param_name AS param_name, p.blob_name AS blob_name,
+               p.data_type AS data_type, p.unit AS unit, p.default_value AS default_value,
+               p.description AS description
+        ORDER BY p.id
+        """,
+        {"query": clean_query},
+    ).get_as_df()
+
+    if params_df.empty:
+        return {
+            "param_query": param_query,
+            "matched_parameters_count": 0,
+            "parameters": [],
+            "causal_pathways": [],
+            "correlations": [],
+        }
+
+    parameter_list: List[Dict[str, Any]] = []
+    all_causal_pathways: List[Dict[str, Any]] = []
+    all_correlations: List[Dict[str, Any]] = []
+
+    for _, row in params_df.iterrows():
+        pid = str(row["id"])
+        p_name = str(row["param_name"])
+        blob_name = str(row["blob_name"])
+        dtype = str(row["data_type"])
+        unit = str(row["unit"])
+        def_val = str(row["default_value"])
+        desc = str(row["description"])
+
+        # Fetch Causal Pathways
+        causal_df = conn.execute(
+            """
+            MATCH (p:InputParameter {id: $pid})-[c:CAUSALLY_INFLUENCES]->(v:OutputVariable)
+            RETURN v.name AS output_variable, v.module AS module, v.category AS category,
+                   v.unit AS unit, c.pathway AS pathway, c.mechanism AS mechanism
+            ORDER BY v.name
+            """,
+            {"pid": pid},
+        ).get_as_df()
+
+        causal_list = causal_df.to_dict(orient="records") if not causal_df.empty else []
+
+        # Fetch Statistical Correlations
+        corr_df = conn.execute(
+            """
+            MATCH (p:InputParameter {id: $pid})-[c:CORRELATES_WITH]->(v:OutputVariable)
+            RETURN v.name AS output_variable, v.module AS module, v.category AS category,
+                   v.unit AS unit, c.pearson_r AS pearson_r, c.spearman_r AS spearman_r,
+                   c.p_value AS p_value, c.sample_size AS sample_size
+            """,
+            {"pid": pid},
+        ).get_as_df()
+
+        corr_list = corr_df.to_dict(orient="records") if not corr_df.empty else []
+        corr_list.sort(key=lambda item: abs(item.get("pearson_r", 0.0)), reverse=True)
+
+        param_dict = {
+            "id": pid,
+            "param_name": p_name,
+            "blob_name": blob_name,
+            "data_type": dtype,
+            "unit": unit,
+            "default_value": def_val,
+            "description": desc,
+            "causal_pathways": causal_list,
+            "correlations": corr_list,
+        }
+        parameter_list.append(param_dict)
+
+        for c_item in causal_list:
+            item_with_param = dict(c_item)
+            item_with_param["param_id"] = pid
+            item_with_param["param_name"] = p_name
+            all_causal_pathways.append(item_with_param)
+
+        for cr_item in corr_list:
+            item_with_param = dict(cr_item)
+            item_with_param["param_id"] = pid
+            item_with_param["param_name"] = p_name
+            all_correlations.append(item_with_param)
+
+    all_correlations.sort(key=lambda item: abs(item.get("pearson_r", 0.0)), reverse=True)
+
+    return {
+        "param_query": param_query,
+        "matched_parameters_count": len(parameter_list),
+        "parameters": parameter_list,
+        "causal_pathways": all_causal_pathways,
+        "correlations": all_correlations,
+    }
+
+
+def lookup_variable_info(conn: kuzu.Connection, var_query: str) -> List[Dict[str, Any]]:
+    """
+    Searches OutputVariable nodes matching var_query (case-insensitive substring) and returns complete
+    metadata, incoming biophysical causal drivers, correlated input parameters, and latest simulation run metrics.
+
+    Args:
+        conn: Initialized KùzuDB connection.
+        var_query: Output variable name or substring to search for.
+
+    Returns:
+        List of variable info dicts with keys:
+            - name: Output variable full name
+            - module: Owning biophysical / economic module
+            - unit: Unit of measurement
+            - category: Functional category
+            - reporter_class: Reporter class
+            - description: Description
+            - causal_inputs: Incoming causal input parameters (with pathway & mechanism)
+            - correlated_inputs: Empirically correlated input parameters (sorted by |r| desc)
+            - run_metrics: Aggregated metrics across simulation runs (if available)
+    """
+    clean_query = var_query.strip().lower()
+
+    vars_df = conn.execute(
+        """
+        MATCH (v:OutputVariable)
+        WHERE lower(v.name) CONTAINS $query
+        RETURN v.name AS name, v.module AS module, v.unit AS unit,
+               v.category AS category, v.reporter_class AS reporter_class,
+               v.description AS description
+        ORDER BY v.name
+        """,
+        {"query": clean_query},
+    ).get_as_df()
+
+    if vars_df.empty:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    for _, row in vars_df.iterrows():
+        vname = str(row["name"])
+        mod = str(row["module"])
+        unit = str(row["unit"])
+        cat = str(row["category"])
+        rep_cls = str(row["reporter_class"])
+        desc = str(row["description"])
+
+        # Fetch incoming causal input parameters
+        causal_df = conn.execute(
+            """
+            MATCH (p:InputParameter)-[c:CAUSALLY_INFLUENCES]->(v:OutputVariable {name: $vname})
+            RETURN p.id AS param_id, p.param_name AS param_name, p.blob_name AS blob_name,
+                   c.pathway AS pathway, c.mechanism AS mechanism
+            ORDER BY p.id
+            """,
+            {"vname": vname},
+        ).get_as_df()
+        causal_inputs = causal_df.to_dict(orient="records") if not causal_df.empty else []
+
+        # Fetch correlated input parameters
+        corr_df = conn.execute(
+            """
+            MATCH (p:InputParameter)-[c:CORRELATES_WITH]->(v:OutputVariable {name: $vname})
+            RETURN p.id AS param_id, p.param_name AS param_name, c.pearson_r AS pearson_r,
+                   c.spearman_r AS spearman_r, c.p_value AS p_value, c.sample_size AS sample_size
+            """,
+            {"vname": vname},
+        ).get_as_df()
+        correlated_inputs = corr_df.to_dict(orient="records") if not corr_df.empty else []
+        correlated_inputs.sort(key=lambda item: abs(item.get("pearson_r", 0.0)), reverse=True)
+
+        # Fetch simulation run metrics
+        metrics_df = conn.execute(
+            """
+            MATCH (r:SimulationRun)-[:GENERATED_METRIC]->(rm:RunMetric)-[:OF_VARIABLE]->(v:OutputVariable {name: $vname})
+            RETURN r.run_id AS run_id, r.scenario_name AS scenario_name, rm.mean_val AS mean_val,
+                   rm.min_val AS min_val, rm.max_val AS max_val, rm.sum_val AS sum_val,
+                   rm.non_null_count AS non_null_count
+            ORDER BY r.run_id
+            """,
+            {"vname": vname},
+        ).get_as_df()
+        run_metrics = metrics_df.to_dict(orient="records") if not metrics_df.empty else []
+
+        results.append({
+            "name": vname,
+            "module": mod,
+            "unit": unit,
+            "category": cat,
+            "reporter_class": rep_cls,
+            "description": desc,
+            "causal_inputs": causal_inputs,
+            "correlated_inputs": correlated_inputs,
+            "run_metrics": run_metrics,
+        })
+
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RuFaS Graph Memory Brain & Correlation Engine CLI",
@@ -1117,6 +1370,62 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
+    query_parser = subparsers.add_parser("query", help="Execute an OpenCypher query on the graph memory brain")
+    query_parser.add_argument(
+        "query",
+        type=str,
+        help="OpenCypher query to execute",
+    )
+    query_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results in JSON format",
+    )
+    query_parser.add_argument(
+        "--db-path",
+        type=str,
+        default="data/rufas_brain.kuzu",
+        help="Path to KùzuDB database folder",
+    )
+
+    trace_parser = subparsers.add_parser("trace-impact", help="Trace biophysical causal pathways and statistical correlations for an input parameter")
+    trace_parser.add_argument(
+        "--param",
+        type=str,
+        required=True,
+        help="Parameter name or search substring",
+    )
+    trace_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results in JSON format",
+    )
+    trace_parser.add_argument(
+        "--db-path",
+        type=str,
+        default="data/rufas_brain.kuzu",
+        help="Path to KùzuDB database folder",
+    )
+
+    lookup_parser = subparsers.add_parser("lookup-var", help="Lookup output variable metadata, causal drivers, and correlations")
+    lookup_parser.add_argument(
+        "--name",
+        type=str,
+        required=True,
+        help="Variable name or search substring",
+    )
+    lookup_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results in JSON format",
+    )
+    lookup_parser.add_argument(
+        "--db-path",
+        type=str,
+        default="data/rufas_brain.kuzu",
+        help="Path to KùzuDB database folder",
+    )
+
     args = parser.parse_args()
     if args.subcommand == "init":
         conn = init_brain_database(args.db_path)
@@ -1144,6 +1453,87 @@ def main() -> None:
         print(f"Correlations computed: Found {len(corrs)} significant relationships (|r| >= {args.min_r}, p <= {args.max_p}).")
         for c in corrs[:20]:
             print(f"  • {c['param_id']} -> {c['var_name']}: Pearson r={c['pearson_r']:.3f}, Spearman rho={c['spearman_r']:.3f}, p={c['p_value']:.4e} (N={c['sample_size']})")
+    elif args.subcommand == "query":
+        conn = init_brain_database(args.db_path)
+        rows = execute_cypher_query(conn, args.query)
+        if args.json:
+            print(json.dumps(rows, indent=2, default=str))
+        else:
+            if not rows:
+                print("Query returned 0 rows.")
+            else:
+                df = pd.DataFrame(rows)
+                print(df.to_string(index=False))
+                print(f"\n({len(rows)} row(s) returned)")
+    elif args.subcommand == "trace-impact":
+        conn = init_brain_database(args.db_path)
+        impact = trace_parameter_impact(conn, args.param)
+        if args.json:
+            print(json.dumps(impact, indent=2, default=str))
+        else:
+            print("==================================================")
+            print(f"Parameter Impact Trace for: '{args.param}'")
+            print(f"Matched parameters: {impact['matched_parameters_count']}")
+            print("==================================================")
+            if impact["matched_parameters_count"] == 0:
+                print("No parameters matching query.")
+            for p in impact["parameters"]:
+                print(f"\n📌 Parameter: {p['id']}")
+                print(f"   Name: {p['param_name']} | Blob: {p['blob_name']} | Type: {p['data_type']} | Unit: {p['unit'] or 'N/A'}")
+                print(f"   Default: {p['default_value']}")
+                if p["description"]:
+                    print(f"   Description: {p['description']}")
+
+                print(f"\n   🔬 Biophysical Causal Pathways ({len(p['causal_pathways'])}):")
+                if not p["causal_pathways"]:
+                    print("      (None identified)")
+                for c in p["causal_pathways"]:
+                    print(f"      • [{c.get('module', '')}] {c['output_variable']} ({c.get('unit', '')})")
+                    print(f"        Pathway: {c['pathway']}")
+                    print(f"        Mechanism: {c['mechanism']}")
+
+                print(f"\n   📊 Empirical Statistical Correlations ({len(p['correlations'])}):")
+                if not p["correlations"]:
+                    print("      (None computed or below threshold)")
+                for cr in p["correlations"]:
+                    print(f"      • [{cr.get('module', '')}] {cr['output_variable']} ({cr.get('unit', '')})")
+                    print(f"        Pearson r: {cr['pearson_r']:.3f} | Spearman rho: {cr['spearman_r']:.3f} | p-val: {cr['p_value']:.4e} (N={cr['sample_size']})")
+    elif args.subcommand == "lookup-var":
+        conn = init_brain_database(args.db_path)
+        var_infos = lookup_variable_info(conn, args.name)
+        if args.json:
+            print(json.dumps(var_infos, indent=2, default=str))
+        else:
+            print("==================================================")
+            print(f"Variable Lookup for: '{args.name}'")
+            print(f"Matched variables: {len(var_infos)}")
+            print("==================================================")
+            if not var_infos:
+                print("No variables matching query.")
+            for v in var_infos:
+                print(f"\n📈 Variable: {v['name']}")
+                print(f"   Module: {v['module']} | Category: {v['category']} | Unit: {v['unit'] or 'N/A'}")
+                print(f"   Reporter Class: {v['reporter_class']}")
+                print(f"   Description: {v['description']}")
+
+                print(f"\n   ⚙️  Incoming Biophysical Drivers ({len(v['causal_inputs'])}):")
+                if not v["causal_inputs"]:
+                    print("      (None identified)")
+                for ci in v["causal_inputs"]:
+                    print(f"      • {ci['param_id']} (Blob: {ci['blob_name']})")
+                    print(f"        Pathway: {ci['pathway']}")
+                    print(f"        Mechanism: {ci['mechanism']}")
+
+                print(f"\n   📊 Correlated Input Parameters ({len(v['correlated_inputs'])}):")
+                if not v["correlated_inputs"]:
+                    print("      (None computed)")
+                for cri in v["correlated_inputs"]:
+                    print(f"      • {cri['param_id']}: Pearson r={cri['pearson_r']:.3f}, Spearman rho={cri['spearman_r']:.3f}, p={cri['p_value']:.4e} (N={cri['sample_size']})")
+
+                if v["run_metrics"]:
+                    print(f"\n   🏃 Simulation Run Metrics ({len(v['run_metrics'])}):")
+                    for rm in v["run_metrics"]:
+                        print(f"      • [{rm['run_id']}] Mean={rm['mean_val']:.3f}, Min={rm['min_val']:.3f}, Max={rm['max_val']:.3f}, Sum={rm['sum_val']:.3f} (N={rm['non_null_count']})")
     else:
         parser.print_help()
 

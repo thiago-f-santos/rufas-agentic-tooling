@@ -241,7 +241,7 @@ git commit -m "feat(brain): implement cross-run statistical correlation engine"
 - Consumes: CLI subcommands (`init`, `ingest`, `query`, `trace-impact`, `lookup-var`, `compute-correlations`).
 - Produces: Formatted tabular & JSON outputs for terminal and agent programmatic consumption.
 
-- [ ] **Step 1: Write the failing test for query and impact tracing CLI functions**
+- [x] **Step 1: Write the failing test for query and impact tracing CLI functions**
 
 ```python
 # In tests/test_brain.py
@@ -257,29 +257,29 @@ def test_brain_query_and_impact_tracing(tmp_path):
     
     # Trace impact
     impacts = trace_parameter_impact(conn, "cow_num")
-    assert isinstance(impacts, list)
+    assert isinstance(impacts, dict)
     
     # Lookup variable
     info = lookup_variable_info(conn, "daily_milk_production")
     assert info is not None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_brain_query_and_impact_tracing -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement query, tracing, lookup, and CLI `main()` in `tools/rufas_brain.py`**
+- [x] **Step 3: Implement query, tracing, lookup, and CLI `main()` in `tools/rufas_brain.py`**
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_brain_query_and_impact_tracing -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add tools/rufas_brain.py tests/test_brain.py
+git add tools/rufas_brain.py tests/test_brain.py docs/superpowers/plans/2026-08-26-rufas-graph-memory-brain.md
 git commit -m "feat(brain): add OpenCypher query execution, impact tracing, and CLI commands"
 ```
 

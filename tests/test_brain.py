@@ -421,5 +421,201 @@ def test_compute_correlations_idempotent(tmp_path):
     assert edge_count == 1
 
 
+def test_brain_query_and_impact_tracing_ontology(tmp_path):
+    from tools.rufas_brain import execute_cypher_query, trace_parameter_impact, lookup_variable_info
+    db_dir = str(tmp_path / "test_brain.kuzu")
+    conn = init_brain_database(db_dir)
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    populate_structural_ontology(conn, rufas_root)
+
+    # 1. Execute OpenCypher Query
+    res = execute_cypher_query(conn, "MATCH (m:Module) RETURN m.name ORDER BY m.name")
+    assert isinstance(res, list)
+    assert len(res) == 5
+    assert res[0]["m.name"] == "animal"
+
+    # 2. Trace Parameter Impact
+    impacts = trace_parameter_impact(conn, "cow_num")
+    assert isinstance(impacts, dict)
+    assert impacts["param_query"] == "cow_num"
+    assert impacts["matched_parameters_count"] > 0
+    assert len(impacts["parameters"]) > 0
+    # Check causal pathways found for cow_num
+    found_causal = any(len(p["causal_pathways"]) > 0 for p in impacts["parameters"])
+    assert found_causal
+
+    # 3. Lookup Variable Info
+    info = lookup_variable_info(conn, "daily_milk_production")
+    assert isinstance(info, list)
+    assert len(info) > 0
+    matched_var = info[0]
+    assert "daily_milk_production" in matched_var["name"]
+    assert matched_var["module"] == "animal"
+    assert matched_var["unit"] == "kg/day"
+    assert matched_var["category"] == "production"
+    assert len(matched_var["causal_inputs"]) > 0
+
+
+def test_execute_cypher_query_unit(tmp_path):
+    from tools.rufas_brain import execute_cypher_query
+    db_dir = str(tmp_path / "test_query.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (m:Module {name: 'animal', description: 'Animal subsystem', manager_class: 'HerdManager'})")
+    conn.execute("CREATE (m:Module {name: 'manure', description: 'Manure subsystem', manager_class: 'ManureManager'})")
+
+    # Basic query
+    res = execute_cypher_query(conn, "MATCH (m:Module) RETURN m.name AS name, m.manager_class AS manager ORDER BY m.name")
+    assert len(res) == 2
+    assert res[0] == {"name": "animal", "manager": "HerdManager"}
+    assert res[1] == {"name": "manure", "manager": "ManureManager"}
+
+    # Filtered query with 0 results
+    empty_res = execute_cypher_query(conn, "MATCH (m:Module) WHERE m.name = 'nonexistent' RETURN m.name")
+    assert empty_res == []
+
+    # Aggregation query
+    count_res = execute_cypher_query(conn, "MATCH (m:Module) RETURN count(m) AS cnt")
+    assert count_res == [{"cnt": 2}]
+
+
+def test_trace_parameter_impact_synthetic(tmp_path):
+    from tools.rufas_brain import trace_parameter_impact
+    db_dir = str(tmp_path / "test_trace.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (p:InputParameter {id: 'animal.herd_information.cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'animals', default_value: '100', description: 'Cow count'})")
+    conn.execute("CREATE (v1:OutputVariable {name: 'AnimalReporter.daily_milk (kg/day)', module: 'animal', unit: 'kg/day', category: 'production', reporter_class: 'AnimalReporter', description: 'Milk output'})")
+    conn.execute("CREATE (v2:OutputVariable {name: 'ManureReporter.ch4_emissions (kg)', module: 'manure', unit: 'kg', category: 'emissions', reporter_class: 'ManureReporter', description: 'Methane output'})")
+
+    # Add causal edge
+    conn.execute(
+        "MATCH (p:InputParameter {id: 'animal.herd_information.cow_num'}), (v:OutputVariable {name: 'AnimalReporter.daily_milk (kg/day)'}) CREATE (p)-[:CAUSALLY_INFLUENCES {pathway: 'Production Scaling', mechanism: 'More cows produce more milk'}]->(v)"
+    )
+
+    # Add correlation edge
+    conn.execute(
+        "MATCH (p:InputParameter {id: 'animal.herd_information.cow_num'}), (v:OutputVariable {name: 'ManureReporter.ch4_emissions (kg)'}) CREATE (p)-[:CORRELATES_WITH {pearson_r: 0.95, spearman_r: 0.93, p_value: 0.001, sample_size: 10}]->(v)"
+    )
+
+    # Case-insensitive search by param_name
+    impact = trace_parameter_impact(conn, "COW_NUM")
+    assert impact["param_query"] == "COW_NUM"
+    assert impact["matched_parameters_count"] == 1
+    p_info = impact["parameters"][0]
+    assert p_info["id"] == "animal.herd_information.cow_num"
+    assert len(p_info["causal_pathways"]) == 1
+    assert p_info["causal_pathways"][0]["output_variable"] == "AnimalReporter.daily_milk (kg/day)"
+    assert p_info["causal_pathways"][0]["pathway"] == "Production Scaling"
+
+    assert len(p_info["correlations"]) == 1
+    assert p_info["correlations"][0]["output_variable"] == "ManureReporter.ch4_emissions (kg)"
+    assert p_info["correlations"][0]["pearson_r"] == 0.95
+
+    # Nonexistent parameter
+    none_impact = trace_parameter_impact(conn, "nonexistent_parameter_xyz")
+    assert none_impact["matched_parameters_count"] == 0
+    assert none_impact["parameters"] == []
+
+
+def test_lookup_variable_info_synthetic(tmp_path):
+    from tools.rufas_brain import lookup_variable_info
+    db_dir = str(tmp_path / "test_lookup.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (p:InputParameter {id: 'animal.cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'animals', default_value: '100', description: 'Herd size'})")
+    conn.execute("CREATE (v:OutputVariable {name: 'AnimalReporter.daily_milk (kg/day)', module: 'animal', unit: 'kg/day', category: 'production', reporter_class: 'AnimalReporter', description: 'Milk output'})")
+    conn.execute("CREATE (r:SimulationRun {run_id: 'run_alpha', scenario_name: 'freestall', execution_date: '2026-08-26', start_date: '2013:1', end_date: '2013:60', duration_days: 60, random_seed: 42, status: 'completed'})")
+    conn.execute("CREATE (rm:RunMetric {id: 'run_alpha::milk', run_id: 'run_alpha', var_name: 'AnimalReporter.daily_milk (kg/day)', mean_val: 3000.0, min_val: 2800.0, max_val: 3200.0, sum_val: 180000.0, non_null_count: 60})")
+
+    # Connect edges
+    conn.execute("MATCH (p:InputParameter {id: 'animal.cow_num'}), (v:OutputVariable {name: 'AnimalReporter.daily_milk (kg/day)'}) CREATE (p)-[:CAUSALLY_INFLUENCES {pathway: 'Scaling', mechanism: 'Herd size'}]->(v)")
+    conn.execute("MATCH (p:InputParameter {id: 'animal.cow_num'}), (v:OutputVariable {name: 'AnimalReporter.daily_milk (kg/day)'}) CREATE (p)-[:CORRELATES_WITH {pearson_r: 0.98, spearman_r: 0.97, p_value: 0.0001, sample_size: 5}]->(v)")
+    conn.execute("MATCH (r:SimulationRun {run_id: 'run_alpha'}), (rm:RunMetric {id: 'run_alpha::milk'}) CREATE (r)-[:GENERATED_METRIC]->(rm)")
+    conn.execute("MATCH (rm:RunMetric {id: 'run_alpha::milk'}), (v:OutputVariable {name: 'AnimalReporter.daily_milk (kg/day)'}) CREATE (rm)-[:OF_VARIABLE]->(v)")
+
+    # Lookup variable by partial case-insensitive query
+    vars_info = lookup_variable_info(conn, "DAILY_MILK")
+    assert len(vars_info) == 1
+    var_meta = vars_info[0]
+    assert var_meta["name"] == "AnimalReporter.daily_milk (kg/day)"
+    assert var_meta["module"] == "animal"
+    assert var_meta["unit"] == "kg/day"
+    assert var_meta["category"] == "production"
+
+    # Incoming causal inputs
+    assert len(var_meta["causal_inputs"]) == 1
+    assert var_meta["causal_inputs"][0]["param_id"] == "animal.cow_num"
+    assert var_meta["causal_inputs"][0]["pathway"] == "Scaling"
+
+    # Correlated inputs
+    assert len(var_meta["correlated_inputs"]) == 1
+    assert var_meta["correlated_inputs"][0]["param_id"] == "animal.cow_num"
+    assert var_meta["correlated_inputs"][0]["pearson_r"] == 0.98
+
+    # Run metrics
+    assert len(var_meta["run_metrics"]) == 1
+    assert var_meta["run_metrics"][0]["run_id"] == "run_alpha"
+    assert var_meta["run_metrics"][0]["mean_val"] == 3000.0
+
+    # Nonexistent lookup
+    empty_lookup = lookup_variable_info(conn, "nonexistent_metric_123")
+    assert empty_lookup == []
+
+
+def test_cli_query_impact_and_lookup(tmp_path, monkeypatch, capsys):
+    import json
+    from tools.rufas_brain import main
+    db_dir = str(tmp_path / "cli_test_brain.kuzu")
+    conn = init_brain_database(db_dir)
+
+    conn.execute("CREATE (p:InputParameter {id: 'cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'cows', default_value: '100', description: 'Herd size'})")
+    conn.execute("CREATE (v:OutputVariable {name: 'milk_production', module: 'animal', unit: 'kg', category: 'production', reporter_class: 'AnimalReporter', description: 'Milk yield'})")
+    conn.execute("MATCH (p:InputParameter {id: 'cow_num'}), (v:OutputVariable {name: 'milk_production'}) CREATE (p)-[:CAUSALLY_INFLUENCES {pathway: 'Scaling', mechanism: 'Herd count'}]->(v)")
+    conn.execute("MATCH (p:InputParameter {id: 'cow_num'}), (v:OutputVariable {name: 'milk_production'}) CREATE (p)-[:CORRELATES_WITH {pearson_r: 0.99, spearman_r: 0.99, p_value: 0.001, sample_size: 5}]->(v)")
+
+    # 1. Test CLI query (tabular and JSON)
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "query", "MATCH (p:InputParameter) RETURN p.id, p.unit", "--db-path", db_dir])
+    main()
+    captured = capsys.readouterr()
+    assert "cow_num" in captured.out
+
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "query", "MATCH (p:InputParameter) RETURN p.id, p.unit", "--json", "--db-path", db_dir])
+    main()
+    captured_json = capsys.readouterr()
+    data = json.loads(captured_json.out)
+    assert isinstance(data, list)
+    assert data[0]["p.id"] == "cow_num"
+
+    # 2. Test CLI trace-impact (text and JSON)
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "trace-impact", "--param", "cow_num", "--db-path", db_dir])
+    main()
+    captured_trace = capsys.readouterr()
+    assert "Parameter Impact Trace" in captured_trace.out
+    assert "milk_production" in captured_trace.out
+
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "trace-impact", "--param", "cow_num", "--json", "--db-path", db_dir])
+    main()
+    captured_trace_json = capsys.readouterr()
+    trace_data = json.loads(captured_trace_json.out)
+    assert trace_data["matched_parameters_count"] == 1
+    assert trace_data["parameters"][0]["id"] == "cow_num"
+
+    # 3. Test CLI lookup-var (text and JSON)
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "lookup-var", "--name", "milk_production", "--db-path", db_dir])
+    main()
+    captured_lookup = capsys.readouterr()
+    assert "milk_production" in captured_lookup.out
+    assert "AnimalReporter" in captured_lookup.out
+
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "lookup-var", "--name", "milk_production", "--json", "--db-path", db_dir])
+    main()
+    captured_lookup_json = capsys.readouterr()
+    lookup_data = json.loads(captured_lookup_json.out)
+    assert len(lookup_data) == 1
+    assert lookup_data[0]["name"] == "milk_production"
+
+
+
 
 
