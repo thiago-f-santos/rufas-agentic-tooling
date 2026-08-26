@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import pandas as pd
 import pytest
 import kuzu
 
@@ -12,6 +13,9 @@ from tools.rufas_brain import (
     populate_structural_ontology,
     ingest_simulation_run,
     compute_statistical_correlations,
+    execute_cypher_query,
+    trace_parameter_impact,
+    lookup_variable_info,
     export_obsidian_vault,
 )
 
@@ -796,6 +800,231 @@ def test_export_obsidian_vault_ontology(tmp_path):
     assert (vault_dir / "05_Modules" / "EEE_Module.md").exists()
     assert len(list((vault_dir / "02_Parameters").glob("*.md"))) > 500
     assert len(list((vault_dir / "03_Outputs").glob("*.md"))) > 1000
+
+
+def test_full_brain_lifecycle_integration(tmp_path):
+    """
+    End-to-end integration verification test for RuFaS Graph Memory Brain:
+    1. Initialize KùzuDB database in tmp_path / "integration_brain.kuzu".
+    2. Ingest structural biophysical ontology from RuFaS repository.
+    3. Ingest real 60-day freestall simulation run from RuFaS/output/ (run_id="real_freestall_60d").
+    4. Generate and ingest 2 additional perturbed simulation runs (cow_num=120 and cow_num=140 with scaled outputs).
+    5. Execute cross-run statistical correlation engine and verify Pearson/Spearman correlation edges.
+    6. Execute OpenCypher queries via execute_cypher_query and verify graph relationships.
+    7. Perform parameter impact tracing (trace_parameter_impact) on "cow_num".
+    8. Perform variable metadata & metric lookup (lookup_variable_info) on "daily_milk_production".
+    9. Export complete Obsidian knowledge graph vault and verify directory structure, frontmatter, and [[wikilinks]].
+    """
+    db_dir = str(tmp_path / "integration_brain.kuzu")
+    conn = init_brain_database(db_dir)
+    assert conn is not None
+
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    assert (rufas_root / "input").is_dir(), f"RuFaS input directory not found at {rufas_root / 'input'}"
+
+    # 1. Ingest structural biophysical ontology
+    onto_summary = populate_structural_ontology(conn, rufas_root)
+    assert isinstance(onto_summary, dict)
+    assert onto_summary["modules_ingested"] == 5
+    assert onto_summary["config_blobs_ingested"] >= 22
+    assert onto_summary["input_parameters_ingested"] > 500
+    assert onto_summary["output_variables_ingested"] > 1000
+    assert onto_summary["causal_edges_ingested"] > 50
+
+    # 2. Ingest live 60-day simulation run (run_id="real_freestall_60d")
+    output_dir = rufas_root / "output"
+    assert output_dir.is_dir(), f"RuFaS output directory not found at {output_dir}"
+
+    run1_summary = ingest_simulation_run(
+        conn,
+        output_dir,
+        run_id="real_freestall_60d",
+        scenario_name="freestall_baseline_60d",
+    )
+    assert run1_summary["run_id"] == "real_freestall_60d"
+    assert run1_summary["duration_days"] == 60
+    assert run1_summary["metrics_ingested"] > 1000
+    assert run1_summary["status"] == "completed"
+
+    # 3. Generate and ingest 2 additional perturbed simulation runs to form 3-run dataset
+    # Locate the main simulation CSV
+    csv_candidates = list((output_dir / "CSVs").glob("*.csv")) + list(output_dir.glob("*.csv"))
+    filtered_csvs = [
+        p for p in csv_candidates
+        if not any(k in p.name for k in ["variables_reported_daily", "variables_not_reported_daily", "variables_usage_counts", "metadata_properties"])
+    ]
+    real_csv = max(filtered_csvs, key=lambda p: p.stat().st_size)
+    df_real = pd.read_csv(real_csv, low_memory=False)
+
+    # Run 2: cow_num = 120 (scaling factor 1.2 for numeric metrics)
+    run2_dir = tmp_path / "run_120_output" / "CSVs"
+    run2_dir.mkdir(parents=True, exist_ok=True)
+    df_120 = df_real.copy()
+    for col in df_120.columns:
+        if pd.api.types.is_numeric_dtype(df_120[col]):
+            df_120[col] = df_120[col] * 1.2
+    df_120.to_csv(run2_dir / "sim_output_120.csv", index=False)
+
+    run2_summary = ingest_simulation_run(
+        conn,
+        run2_dir.parent,
+        run_id="freestall_cow120",
+        scenario_name="freestall_perturbed_120",
+        config_data={"animal.herd_information.cow_num": 120},
+    )
+    assert run2_summary["run_id"] == "freestall_cow120"
+    assert run2_summary["metrics_ingested"] > 1000
+
+    # Run 3: cow_num = 140 (scaling factor 1.4 for numeric metrics)
+    run3_dir = tmp_path / "run_140_output" / "CSVs"
+    run3_dir.mkdir(parents=True, exist_ok=True)
+    df_140 = df_real.copy()
+    for col in df_140.columns:
+        if pd.api.types.is_numeric_dtype(df_140[col]):
+            df_140[col] = df_140[col] * 1.4
+    df_140.to_csv(run3_dir / "sim_output_140.csv", index=False)
+
+    run3_summary = ingest_simulation_run(
+        conn,
+        run3_dir.parent,
+        run_id="freestall_cow140",
+        scenario_name="freestall_perturbed_140",
+        config_data={"animal.herd_information.cow_num": 140},
+    )
+    assert run3_summary["run_id"] == "freestall_cow140"
+    assert run3_summary["metrics_ingested"] > 1000
+
+    # Verify 3 simulation runs in KùzuDB
+    runs_count = conn.execute("MATCH (r:SimulationRun) RETURN count(r)").get_next()[0]
+    assert runs_count == 3
+
+    # 4. Compute Statistical Cross-Run Correlations
+    correlations = compute_statistical_correlations(conn, min_r=0.5, max_p=0.05, min_samples=3)
+    assert isinstance(correlations, list)
+    assert len(correlations) > 100
+
+    # Verify cow_num -> daily_milk_production correlation
+    milk_corr = next((c for c in correlations if "cow_num" in c["param_id"] and "daily_milk_production" in c["var_name"]), None)
+    assert milk_corr is not None
+    assert milk_corr["pearson_r"] > 0.99
+    assert milk_corr["p_value"] < 0.05
+    assert milk_corr["sample_size"] == 3
+
+    # Verify CORRELATES_WITH edges in KùzuDB
+    correlates_edge_count = conn.execute("MATCH (p:InputParameter)-[c:CORRELATES_WITH]->(v:OutputVariable) RETURN count(c)").get_next()[0]
+    assert correlates_edge_count == len(correlations)
+
+    # 5. OpenCypher Queries via execute_cypher_query
+    runs_queried = execute_cypher_query(conn, "MATCH (r:SimulationRun) RETURN r.run_id AS run_id ORDER BY r.run_id")
+    assert len(runs_queried) == 3
+    assert [r["run_id"] for r in runs_queried] == ["freestall_cow120", "freestall_cow140", "real_freestall_60d"]
+
+    animal_metrics_res = execute_cypher_query(
+        conn,
+        "MATCH (r:SimulationRun)-[:GENERATED_METRIC]->(rm:RunMetric)-[:OF_VARIABLE]->(v:OutputVariable) WHERE v.module = 'animal' RETURN count(DISTINCT rm.var_name) AS cnt"
+    )
+    assert len(animal_metrics_res) == 1
+    assert animal_metrics_res[0]["cnt"] > 500
+
+    top_corrs = execute_cypher_query(
+        conn,
+        "MATCH (p:InputParameter)-[c:CORRELATES_WITH]->(v:OutputVariable) RETURN p.id AS param, v.name AS variable, c.pearson_r AS r ORDER BY abs(c.pearson_r) DESC LIMIT 5"
+    )
+    assert len(top_corrs) == 5
+    for row in top_corrs:
+        assert abs(row["r"]) >= 0.5
+
+    # 6. Parameter Impact Tracing (trace_parameter_impact)
+    cow_impact = trace_parameter_impact(conn, "cow_num")
+    assert isinstance(cow_impact, dict)
+    assert cow_impact["param_query"] == "cow_num"
+    assert cow_impact["matched_parameters_count"] >= 1
+    assert len(cow_impact["parameters"]) >= 1
+    assert len(cow_impact["causal_pathways"]) > 0
+    assert len(cow_impact["correlations"]) > 0
+
+    # Ensure milk production is tracked in cow_num impact
+    has_milk_causal = any("daily_milk_production" in cp["output_variable"] for cp in cow_impact["causal_pathways"])
+    assert has_milk_causal
+    has_milk_corr = any("daily_milk_production" in cr["output_variable"] for cr in cow_impact["correlations"])
+    assert has_milk_corr
+
+    # 7. Variable Info Lookup (lookup_variable_info)
+    milk_info = lookup_variable_info(conn, "daily_milk_production")
+    assert isinstance(milk_info, list)
+    assert len(milk_info) >= 1
+    target_var = milk_info[0]
+    assert "daily_milk_production" in target_var["name"]
+    assert target_var["module"] == "animal"
+    assert target_var["unit"] == "kg/day"
+    assert target_var["category"] == "production"
+    assert len(target_var["causal_inputs"]) > 0
+    assert len(target_var["correlated_inputs"]) > 0
+    assert len(target_var["run_metrics"]) == 3
+
+    # 8. Export Obsidian Knowledge Graph Vault
+    vault_dir = tmp_path / "obsidian_vault"
+    vault_stats = export_obsidian_vault(conn, vault_dir)
+    assert isinstance(vault_stats, dict)
+    assert vault_stats["notes_generated"] > 1000
+    assert vault_stats["dashboard_notes"] == 1
+    assert vault_stats["simulations_notes"] == 3
+    assert vault_stats["parameters_notes"] > 500
+    assert vault_stats["outputs_notes"] > 1000
+    assert vault_stats["correlations_notes"] == 1
+    assert vault_stats["modules_notes"] == 5
+
+    # Verify Vault Files and Interconnected [[wikilinks]]
+    assert (vault_dir / "00_Dashboard.md").exists()
+    dash_content = (vault_dir / "00_Dashboard.md").read_text(encoding="utf-8")
+    assert "RuFaS Knowledge Graph Dashboard" in dash_content
+    assert "[[Animal_Module]]" in dash_content
+    assert "[[Significant_Correlations|View Table]]" in dash_content
+
+    # Verify Simulation Note
+    sim_note = vault_dir / "01_Simulations" / "real_freestall_60d.md"
+    assert sim_note.exists()
+    sim_content = sim_note.read_text(encoding="utf-8")
+    assert "id: real_freestall_60d" in sim_content
+    assert "freestall_baseline_60d" in sim_content
+    assert "## ⚙️ Key Configured Parameters" in sim_content
+    assert "## 🥛 Top Production Metrics" in sim_content
+
+    # Verify Parameter Note with Causal & Correlation Links
+    param_note_path = vault_dir / "02_Parameters" / "animal.herd_information.cow_num.md"
+    assert param_note_path.exists()
+    param_content = param_note_path.read_text(encoding="utf-8")
+    assert "id: animal.herd_information.cow_num" in param_content
+    assert "[[Animal_Module|animal]]" in param_content
+    assert "## 🔬 Biophysical Causal Outputs" in param_content
+    assert "daily_milk_production" in param_content
+    assert "## 📊 Empirical Cross-Run Correlations" in param_content
+
+    # Verify Output Note with Wikilinks
+    output_note_path = vault_dir / "03_Outputs" / "AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg_day).md"
+    assert output_note_path.exists()
+    output_content = output_note_path.read_text(encoding="utf-8")
+    assert "name: \"AnimalModuleReporter.report_herd_statistics_data.daily_milk_production (kg/day)\"" in output_content
+    assert "[[Animal_Module|animal]]" in output_content
+    assert "[[animal.herd_information.cow_num|cow_num]]" in output_content
+    assert "[[real_freestall_60d|real_freestall_60d]]" in output_content
+
+    # Verify Correlation Note
+    corr_note = vault_dir / "04_Correlations" / "Significant_Correlations.md"
+    assert corr_note.exists()
+    corr_content = corr_note.read_text(encoding="utf-8")
+    assert "Significant Cross-Run Correlations" in corr_content or "Significant Empirical Correlations" in corr_content
+    assert "animal.herd_information.cow_num" in corr_content
+
+
+    # Verify Module Note
+    module_note = vault_dir / "05_Modules" / "Animal_Module.md"
+    assert module_note.exists()
+    mod_content = module_note.read_text(encoding="utf-8")
+    assert "name: animal" in mod_content
+    assert "HerdManager" in mod_content
+
+
 
 
 

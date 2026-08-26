@@ -83,7 +83,7 @@ git commit -m "feat(brain): initialize KuzuDB graph database schema and dependen
 - Consumes: RuFaS scenario metadata JSONs and input schemas in `RuFaS/input/`.
 - Produces: `populate_structural_ontology(conn: kuzu.Connection, rufas_root: Path)` populating canonical Modules (5), ConfigBlobs (22), InputParameters, OutputVariables (2,038), and biophysical `CAUSALLY_INFLUENCES` edges.
 
-- [ ] **Step 1: Write the failing test for ontology population**
+- [x] **Step 1: Write the failing test for ontology population**
 
 ```python
 # In tests/test_brain.py
@@ -106,21 +106,21 @@ def test_populate_structural_ontology(tmp_path):
     assert vars_count > 1000
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_populate_structural_ontology -v`
 Expected: FAIL with `AttributeError`
 
-- [ ] **Step 3: Implement `populate_structural_ontology` in `tools/rufas_brain.py`**
+- [x] **Step 3: Implement `populate_structural_ontology` in `tools/rufas_brain.py`**
 
 Implement parsing of scenario metadata, module descriptors, input parameters, and output variable catalogs with unit extraction and domain causal rules.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_populate_structural_ontology -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_brain.py tests/test_brain.py
@@ -391,7 +391,7 @@ git commit -m "feat(skills): add dedicated rufas-brain-specialist skill for grap
 - Consumes: Live RuFaS output directory `RuFaS/output/` and generated KùzuDB brain.
 - Produces: 100% verified test suite covering real whole-farm simulation ingestion, Cypher querying, correlation analysis, and Obsidian export.
 
-- [ ] **Step 1: Write end-to-end integration test in `tests/test_brain.py`**
+- [x] **Step 1: Write end-to-end integration test in `tests/test_brain.py`**
 
 ```python
 def test_full_brain_lifecycle_integration(tmp_path):
@@ -414,17 +414,17 @@ def test_full_brain_lifecycle_integration(tmp_path):
     assert export_stats["notes_generated"] > 50
 ```
 
-- [ ] **Step 2: Run full test suite to verify everything passes**
+- [x] **Step 2: Run full test suite to verify everything passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py tests/test_tooling.py -v`
 Expected: PASS (100% pass rate)
 
-- [ ] **Step 3: Run live installation of all 7 skills across targets**
+- [x] **Step 3: Run live installation of all 7 skills across targets**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && python3 tools/install_skills.py --target all`
 Expected: 7/7 skills installed cleanly across all AI CLIs.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/test_brain.py
