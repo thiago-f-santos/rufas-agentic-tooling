@@ -241,7 +241,7 @@ git commit -m "docs(skills): document feed storage output variables, degradation
 - Consumes: Verified variable names from `Manure.ParlorCleaningHandler`, `Manure.SingleStreamHandler`, `Manure.Storage`.
 - Produces: Exhaustive Output Data Dictionary section in `rufas-manure-specialist/SKILL.md` detailing handler emissions, separator partitions, lagoon kinetics, and land application nutrient pools.
 
-- [ ] **Step 1: Write test verifying output documentation in `rufas-manure-specialist`**
+- [x] **Step 1: Write test verifying output documentation in `rufas-manure-specialist`**
 
 ```python
 # In tests/test_tooling.py
@@ -254,12 +254,12 @@ def test_manure_specialist_output_docs():
     assert "manure_ammoniacal_nitrogen" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_manure_specialist_output_docs -v`
 Expected: FAIL
 
-- [ ] **Step 3: Update `rufas-manure-specialist/SKILL.md` with manure housing, storage, and emissions taxonomy**
+- [x] **Step 3: Update `rufas-manure-specialist/SKILL.md` with manure housing, storage, and emissions taxonomy**
 
 Add section `## Simulation Output Variable Dictionary`:
 - Housing collection & scraping outputs: `housing_CO2_emissions` (kg), `housing_methane_emissions` (kg), `housing_ammonia_N_emissions` (kg), `manure_water` (kg), `manure_nitrogen` (kg), `manure_ammoniacal_nitrogen` (kg), `manure_phosphorus` (kg), `manure_potassium` (kg) across alley scrapers and manual scrapers (`lac_alley_scraper`, `closeup_manual_scraper`, `calf_manual_scraper`, `growing_alley_scraper`).
@@ -267,12 +267,12 @@ Add section `## Simulation Output Variable Dictionary`:
 - Solid-liquid separator efficiencies: mass fraction partitioned to solid cake vs liquid effluent.
 - Nutrient supply to fields: `ManureEventNutrientRequestResults` N, P, K delivery vs application rates.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_manure_specialist_output_docs -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-manure-specialist/SKILL.md tests/test_tooling.py
