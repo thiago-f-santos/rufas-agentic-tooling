@@ -346,7 +346,7 @@ git commit -m "feat(brain): implement on-demand Obsidian Markdown knowledge grap
 - Consumes: KùzuDB query tools and ontology API.
 - Produces: Authoritative Agent Skill for knowledge graph navigation, variable lookups, cross-module correlations, and Obsidian export.
 
-- [ ] **Step 1: Write test verifying `rufas-brain-specialist` skill existence and installation**
+- [x] **Step 1: Write test verifying `rufas-brain-specialist` skill existence and installation**
 
 ```python
 # In tests/test_tooling.py
@@ -358,21 +358,21 @@ def test_brain_specialist_skill_exists_and_valid():
     assert "KùzuDB" in content or "OpenCypher" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -k test_brain_specialist_skill_exists_and_valid -v`
 Expected: FAIL
 
-- [ ] **Step 3: Create `skills/rufas-brain-specialist/SKILL.md` and update `tools/install_skills.py`**
+- [x] **Step 3: Create `skills/rufas-brain-specialist/SKILL.md` and update `tools/install_skills.py`**
 
 Document all OpenCypher patterns, CLI tools, impact tracing workflows, and correlation analysis protocols in the skill.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_tooling.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/rufas-brain-specialist/SKILL.md tools/install_skills.py tests/test_tooling.py

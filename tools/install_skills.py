@@ -21,6 +21,7 @@ SKILLS = [
     "rufas-feed-storage-specialist",
     "rufas-manure-specialist",
     "rufas-eee-specialist",
+    "rufas-brain-specialist",
 ]
 
 

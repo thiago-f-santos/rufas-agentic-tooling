@@ -69,7 +69,7 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertEqual(len(summary["csv_files_found"]), 0)
 
     def test_all_skills_sdo_compliance(self) -> None:
-        """Verify all 6 RuFaS specialist skills meet strict SDO and frontmatter rules."""
+        """Verify all 7 RuFaS specialist skills meet strict SDO and frontmatter rules."""
         skills_dir = PROJECT_ROOT / "skills"
         self.assertTrue(skills_dir.exists())
 
@@ -80,6 +80,7 @@ class TestRuFaSTooling(unittest.TestCase):
             "rufas-feed-storage-specialist",
             "rufas-manure-specialist",
             "rufas-eee-specialist",
+            "rufas-brain-specialist",
         ]
 
         for skill_name in expected_skills:
@@ -310,8 +311,19 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("264", ref_content)
         self.assertIn("134", ref_content)
 
+    def test_brain_specialist_skill_exists_and_valid(self) -> None:
+        """Verify rufas-brain-specialist skill exists and contains required graph and Cypher references."""
+        skill_file = PROJECT_ROOT / "skills" / "rufas-brain-specialist" / "SKILL.md"
+        self.assertTrue(skill_file.exists())
+        content = skill_file.read_text(encoding="utf-8")
+        self.assertIn("rufas-brain-specialist", content)
+        self.assertTrue("KùzuDB" in content or "OpenCypher" in content)
+        self.assertIn("CAUSALLY_INFLUENCES", content)
+        self.assertIn("CORRELATES_WITH", content)
+        self.assertIn("rufas-brain", content)
+
     def test_all_skills_complete_and_valid(self) -> None:
-        """Verify all 6 modular skills have valid YAML frontmatter, description, and output documentation."""
+        """Verify all 7 modular skills have valid YAML frontmatter, description, and output documentation."""
         expected_skills = [
             "rufas-specialist",
             "rufas-animal-specialist",
@@ -319,6 +331,7 @@ class TestRuFaSTooling(unittest.TestCase):
             "rufas-feed-storage-specialist",
             "rufas-manure-specialist",
             "rufas-eee-specialist",
+            "rufas-brain-specialist",
         ]
         skills_dir = PROJECT_ROOT / "skills"
         for skill_name in expected_skills:
@@ -327,7 +340,7 @@ class TestRuFaSTooling(unittest.TestCase):
             content = skill_file.read_text(encoding="utf-8")
             self.assertTrue(content.startswith("---"), f"Missing frontmatter in {skill_file}")
             self.assertTrue(
-                "## Simulation Output Variable Dictionary" in content or skill_name == "rufas-specialist",
+                "## Simulation Output Variable Dictionary" in content or skill_name in ["rufas-specialist", "rufas-brain-specialist"],
                 f"Missing Simulation Output Variable Dictionary in {skill_file}",
             )
             # Frontmatter validation
@@ -338,7 +351,7 @@ class TestRuFaSTooling(unittest.TestCase):
             self.assertIn("description:", frontmatter, f"{skill_name} missing description")
 
     def test_install_skills_dry_run(self) -> None:
-        """Verify install_skills dry run validates all 6 skills without modifying target directory."""
+        """Verify install_skills dry run validates all 7 skills without modifying target directory."""
         import tempfile
         from tools.install_skills import SKILLS, install_skills
 
@@ -347,7 +360,7 @@ class TestRuFaSTooling(unittest.TestCase):
             target_dir = Path(tmpdir) / "test_target"
             count = install_skills(skills_dir, target_dir, dry_run=True)
             self.assertEqual(count, len(SKILLS))
-            self.assertEqual(count, 6)
+            self.assertEqual(count, 7)
             self.assertFalse(target_dir.exists())
 
 
