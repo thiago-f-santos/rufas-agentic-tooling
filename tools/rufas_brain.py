@@ -565,6 +565,290 @@ def populate_structural_ontology(
     return summary
 
 
+def ingest_simulation_run(
+    conn: kuzu.Connection,
+    output_dir: Union[str, Path],
+    run_id: str,
+    scenario_name: str = "example_freestall",
+    config_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Ingests a RuFaS simulation run from CSV output files into KùzuDB:
+    1. Parses simulation CSV output file in output_dir.
+    2. Upserts a :SimulationRun node with execution metadata and duration.
+    3. Connects the run to :InputParameter nodes via SIMULATED_WITH edges.
+    4. Calculates descriptive statistics (mean, min, max, sum, non_null_count) for all variables.
+    5. Batch inserts :RunMetric nodes and connects GENERATED_METRIC and OF_VARIABLE edges.
+
+    Args:
+        conn: Initialized KùzuDB connection.
+        output_dir: Directory containing simulation CSV outputs (e.g. output/ or output/CSVs).
+        run_id: Unique string identifier for this simulation run.
+        scenario_name: Name of the scenario simulated.
+        config_data: Optional dictionary of parameter overrides used in this run.
+
+    Returns:
+        Summary dict containing ingestion metrics.
+    """
+    import re
+    from datetime import datetime
+    import pandas as pd
+
+    out_path = Path(output_dir).resolve()
+    logger.info("Ingesting simulation run '%s' from %s", run_id, out_path)
+
+    # 1. Locate the main output CSV file
+    csv_candidates: List[Path] = []
+    if (out_path / "CSVs").exists():
+        csv_candidates.extend(list((out_path / "CSVs").glob("*.csv")))
+    if out_path.exists():
+        csv_candidates.extend(list(out_path.glob("*.csv")))
+
+    # Filter out secondary log CSVs if main simulation CSV is present
+    filtered_candidates = [
+        p for p in csv_candidates
+        if not any(k in p.name for k in ["variables_reported_daily", "variables_not_reported_daily", "variables_usage_counts", "metadata_properties"])
+    ]
+    candidate_list = filtered_candidates if filtered_candidates else csv_candidates
+
+    if not candidate_list:
+        raise FileNotFoundError(f"No CSV output files found in {output_dir}")
+
+    # Pick largest CSV file (highest column count / size)
+    main_csv = max(candidate_list, key=lambda p: p.stat().st_size)
+    logger.info("Loading output CSV: %s", main_csv)
+    df = pd.read_csv(main_csv, low_memory=False)
+
+    # 2. Extract execution metadata
+    # Execution Date
+    execution_date = datetime.now().isoformat()
+    date_match = re.search(r"(\d{1,2}-[A-Za-z]{3}-\d{4})_[A-Za-z]{3}_(\d{2}-\d{2}-\d{2})", main_csv.name)
+    if date_match:
+        try:
+            dt = datetime.strptime(f"{date_match.group(1)} {date_match.group(2).replace('-', ':')}", "%d-%b-%Y %H:%M:%S")
+            execution_date = dt.isoformat()
+        except Exception:
+            pass
+    elif main_csv.exists():
+        execution_date = datetime.fromtimestamp(main_csv.stat().st_mtime).isoformat()
+
+    # Start date, end date, duration_days
+    start_date = "2013:1"
+    end_date = f"2013:{len(df)}"
+    duration_days = len(df)
+
+    col_cal_yr = next((c for c in df.columns if "calendar_year" in c.lower()), None)
+    col_day = next((c for c in df.columns if c.startswith("RufasTime.day") or "julian day" in c.lower()), None)
+    col_sim_day = next((c for c in df.columns if "simulation_day" in c.lower()), None)
+
+    if col_cal_yr and col_day:
+        df_time = df[[col_cal_yr, col_day]].dropna()
+        if not df_time.empty:
+            cal_yr_0 = int(df_time[col_cal_yr].iloc[0])
+            day_0 = int(df_time[col_day].iloc[0])
+            cal_yr_n = int(df_time[col_cal_yr].iloc[-1])
+            day_n = int(df_time[col_day].iloc[-1])
+            start_date = f"{cal_yr_0}:{day_0}"
+            end_date = f"{cal_yr_n}:{day_n}"
+            duration_days = len(df_time)
+    elif col_day:
+        df_day = df[col_day].dropna()
+        if not df_day.empty:
+            start_date = f"day_{int(df_day.iloc[0])}"
+            end_date = f"day_{int(df_day.iloc[-1])}"
+            duration_days = len(df_day)
+    elif col_sim_day:
+        df_sim_day = df[col_sim_day].dropna()
+        if not df_sim_day.empty:
+            duration_days = int(df_sim_day.max()) + 1
+            end_date = f"2013:{duration_days}"
+
+    # Random seed & status
+    random_seed = 42
+    if config_data:
+        if "random_seed" in config_data:
+            random_seed = int(config_data["random_seed"])
+        elif "seed" in config_data:
+            random_seed = int(config_data["seed"])
+
+    status = "completed" if len(df) > 0 else "failed"
+
+    # 3. Upsert :SimulationRun node
+    conn.execute(
+        """
+        MERGE (r:SimulationRun {run_id: $run_id})
+        ON CREATE SET
+            r.scenario_name = $scenario_name,
+            r.execution_date = $execution_date,
+            r.start_date = $start_date,
+            r.end_date = $end_date,
+            r.duration_days = $duration_days,
+            r.random_seed = $random_seed,
+            r.status = $status
+        ON MATCH SET
+            r.scenario_name = $scenario_name,
+            r.execution_date = $execution_date,
+            r.start_date = $start_date,
+            r.end_date = $end_date,
+            r.duration_days = $duration_days,
+            r.random_seed = $random_seed,
+            r.status = $status
+        """,
+        {
+            "run_id": run_id,
+            "scenario_name": scenario_name,
+            "execution_date": execution_date,
+            "start_date": start_date,
+            "end_date": end_date,
+            "duration_days": duration_days,
+            "random_seed": random_seed,
+            "status": status,
+        },
+    )
+
+    # 4. Connect to InputParameter nodes via SIMULATED_WITH
+    flat_config_lookup: Dict[str, str] = {}
+    if config_data:
+        if isinstance(config_data, dict):
+            for k, dtype, val in flatten_config_dict(config_data):
+                flat_config_lookup[str(k)] = str(val)
+                flat_config_lookup[str(k).split(".")[-1]] = str(val)
+            for k, v in config_data.items():
+                flat_config_lookup[str(k)] = str(v)
+                flat_config_lookup[str(k).split(".")[-1]] = str(v)
+
+    params_df = conn.execute("MATCH (p:InputParameter) RETURN p.id, p.param_name, p.default_value").get_as_df()
+    parameters_linked = 0
+
+    if not params_df.empty:
+        for row in params_df.values:
+            p_id, p_name, p_default = str(row[0]), str(row[1]), str(row[2])
+            val = flat_config_lookup.get(p_id, flat_config_lookup.get(p_name, p_default))
+            conn.execute(
+                """
+                MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: $pid})
+                MERGE (r)-[s:SIMULATED_WITH]->(p)
+                ON CREATE SET s.value = $val
+                ON MATCH SET s.value = $val
+                """,
+                {"rid": run_id, "pid": p_id, "val": str(val)},
+            )
+            parameters_linked += 1
+    elif config_data:
+        for k, v in flat_config_lookup.items():
+            conn.execute(
+                """
+                MERGE (p:InputParameter {id: $id})
+                ON CREATE SET p.blob_name = '', p.param_name = $pname, p.data_type = 'string', p.unit = '', p.default_value = $val, p.description = ''
+                """,
+                {"id": k, "pname": k.split(".")[-1], "val": str(v)},
+            )
+            conn.execute(
+                """
+                MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: $pid})
+                MERGE (r)-[s:SIMULATED_WITH]->(p)
+                ON CREATE SET s.value = $val
+                ON MATCH SET s.value = $val
+                """,
+                {"rid": run_id, "pid": k, "val": str(v)},
+            )
+            parameters_linked += 1
+
+    # 5. Ensure OutputVariable nodes exist for all CSV columns
+    existing_vars_df = conn.execute("MATCH (v:OutputVariable) RETURN v.name").get_as_df()
+    existing_vars = set(existing_vars_df["v.name"].tolist()) if not existing_vars_df.empty else set()
+
+    for col in df.columns:
+        col_str = str(col)
+        if col_str not in existing_vars:
+            mod = categorize_variable_name(col_str)
+            unit = extract_variable_unit(col_str) or ""
+            cat = infer_variable_category(col_str, mod)
+            parts = col_str.split(".")
+            rep_cls = parts[0] if len(parts) > 1 else "General"
+            desc = f"Simulation output variable tracked by {rep_cls}"
+            conn.execute(
+                """
+                MERGE (v:OutputVariable {name: $name})
+                ON CREATE SET v.module = $mod, v.unit = $unit, v.category = $cat, v.reporter_class = $rep, v.description = $desc
+                """,
+                {"name": col_str, "mod": mod, "unit": unit, "cat": cat, "rep": rep_cls, "desc": desc},
+            )
+            existing_vars.add(col_str)
+
+    # 6. Calculate summary statistics & batch insert RunMetric nodes and edges
+    upsert_metric_query = """
+    MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: $vname})
+    MERGE (rm:RunMetric {id: $mid})
+    ON CREATE SET
+        rm.run_id = $rid,
+        rm.var_name = $vname,
+        rm.mean_val = $mean,
+        rm.min_val = $min,
+        rm.max_val = $max,
+        rm.sum_val = $sum,
+        rm.non_null_count = $count
+    ON MATCH SET
+        rm.run_id = $rid,
+        rm.var_name = $vname,
+        rm.mean_val = $mean,
+        rm.min_val = $min,
+        rm.max_val = $max,
+        rm.sum_val = $sum,
+        rm.non_null_count = $count
+    MERGE (r)-[:GENERATED_METRIC]->(rm)
+    MERGE (rm)-[:OF_VARIABLE]->(v)
+    """
+
+    metrics_ingested = 0
+    for col in df.columns:
+        col_str = str(col)
+        series = pd.to_numeric(df[col], errors="coerce")
+        valid = series.dropna()
+        cnt = int(len(valid))
+        if cnt > 0:
+            mean_v = float(valid.mean())
+            min_v = float(valid.min())
+            max_v = float(valid.max())
+            sum_v = float(valid.sum())
+        else:
+            mean_v = 0.0
+            min_v = 0.0
+            max_v = 0.0
+            sum_v = 0.0
+
+        metric_id = f"{run_id}::{col_str}"
+        conn.execute(
+            upsert_metric_query,
+            {
+                "rid": run_id,
+                "vname": col_str,
+                "mid": metric_id,
+                "mean": mean_v,
+                "min": min_v,
+                "max": max_v,
+                "sum": sum_v,
+                "count": cnt,
+            },
+        )
+        metrics_ingested += 1
+
+    summary = {
+        "run_id": run_id,
+        "scenario_name": scenario_name,
+        "execution_date": execution_date,
+        "start_date": start_date,
+        "end_date": end_date,
+        "duration_days": duration_days,
+        "random_seed": random_seed,
+        "status": status,
+        "metrics_ingested": metrics_ingested,
+        "parameters_linked": parameters_linked,
+    }
+    logger.info("Simulation run ingestion completed: %s", summary)
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RuFaS Graph Memory Brain & Correlation Engine CLI",
@@ -586,16 +870,54 @@ def main() -> None:
         help="Path to the root directory of RuFaS codebase",
     )
 
+    ingest_parser = subparsers.add_parser("ingest", help="Ingest a simulation run and compute output metrics")
+    ingest_parser.add_argument(
+        "--output-dir",
+        type=str,
+        required=True,
+        help="Path to RuFaS output directory (containing CSVs)",
+    )
+    ingest_parser.add_argument(
+        "--run-id",
+        type=str,
+        required=True,
+        help="Unique identifier for the simulation run",
+    )
+    ingest_parser.add_argument(
+        "--scenario",
+        type=str,
+        default="example_freestall",
+        dest="scenario_name",
+        help="Scenario name for the simulation run",
+    )
+    ingest_parser.add_argument(
+        "--db-path",
+        type=str,
+        default="data/rufas_brain.kuzu",
+        help="Path to KùzuDB database folder",
+    )
+
     args = parser.parse_args()
     if args.subcommand == "init":
         conn = init_brain_database(args.db_path)
         summary = populate_structural_ontology(conn, args.rufas_root)
         print(f"RuFaS Graph Memory Brain database initialized at {args.db_path}")
         print(f"Ontology summary: {summary}")
+    elif args.subcommand == "ingest":
+        conn = init_brain_database(args.db_path)
+        summary = ingest_simulation_run(
+            conn,
+            output_dir=args.output_dir,
+            run_id=args.run_id,
+            scenario_name=args.scenario_name,
+        )
+        print(f"Simulation run '{args.run_id}' ingested successfully.")
+        print(f"Ingestion summary: {summary}")
     else:
         parser.print_help()
 
 
 if __name__ == "__main__":
     main()
+
 

@@ -139,7 +139,7 @@ git commit -m "feat(brain): add structural ontology and causal pathway ingestion
 - Consumes: RuFaS simulation output directory `RuFaS/output/` containing CSVs.
 - Produces: `ingest_simulation_run(conn: kuzu.Connection, output_dir: Path, run_id: str, scenario_name: str = "example_freestall") -> dict[str, Any]` creating a `:SimulationRun` node and generating `:RunMetric` nodes for all non-empty output columns.
 
-- [ ] **Step 1: Write the failing test for run ingestion**
+- [x] **Step 1: Write the failing test for run ingestion**
 
 ```python
 # In tests/test_brain.py
@@ -159,24 +159,24 @@ def test_ingest_simulation_run(tmp_path):
     assert run_res[0] == "test_run_01"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_ingest_simulation_run -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `ingest_simulation_run` in `tools/rufas_brain.py`**
+- [x] **Step 3: Implement `ingest_simulation_run` in `tools/rufas_brain.py`**
 
 Parse output CSVs using Pandas, compute descriptive statistics (mean, min, max, sum, count), upsert `:RunMetric` nodes, and connect via `GENERATED_METRIC` and `OF_VARIABLE` edges.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `export PATH="/home/thiago/Projetos/RuFaS/.venv/bin:$HOME/.local/bin:$PATH" && pytest tests/test_brain.py -k test_ingest_simulation_run -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add tools/rufas_brain.py tests/test_brain.py
+git add tools/rufas_brain.py tests/test_brain.py docs/superpowers/plans/2026-08-26-rufas-graph-memory-brain.md
 git commit -m "feat(brain): implement simulation run and metric ingestion pipeline"
 ```
 

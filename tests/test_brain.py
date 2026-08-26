@@ -7,7 +7,11 @@ import kuzu
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools.rufas_brain import init_brain_database, populate_structural_ontology
+from tools.rufas_brain import (
+    init_brain_database,
+    populate_structural_ontology,
+    ingest_simulation_run,
+)
 
 
 def test_init_brain_database(tmp_path):
@@ -124,4 +128,102 @@ def test_populate_structural_ontology_idempotent(tmp_path):
     
     blobs_count = conn.execute("MATCH (b:ConfigBlob) RETURN count(b)").get_next()[0]
     assert blobs_count >= 22
+
+
+def test_ingest_simulation_run(tmp_path):
+    db_dir = str(tmp_path / "test_brain.kuzu")
+    conn = init_brain_database(db_dir)
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    populate_structural_ontology(conn, rufas_root)
+
+    output_dir = rufas_root / "output"
+    summary = ingest_simulation_run(conn, output_dir, run_id="test_run_01", scenario_name="freestall")
+    assert summary["run_id"] == "test_run_01"
+    assert summary["metrics_ingested"] > 500
+    assert summary["status"] == "completed"
+
+    # Query SimulationRun in KuzuDB
+    run_res = conn.execute("MATCH (r:SimulationRun {run_id: 'test_run_01'}) RETURN r.run_id, r.scenario_name, r.duration_days, r.status").get_next()
+    assert run_res[0] == "test_run_01"
+    assert run_res[1] == "freestall"
+    assert run_res[2] == 60
+    assert run_res[3] == "completed"
+
+    # Verify RunMetric nodes
+    metrics_count = conn.execute("MATCH (rm:RunMetric {run_id: 'test_run_01'}) RETURN count(rm)").get_next()[0]
+    assert metrics_count > 500
+
+    # Verify GENERATED_METRIC edges
+    gen_count = conn.execute("MATCH (r:SimulationRun {run_id: 'test_run_01'})-[:GENERATED_METRIC]->(rm:RunMetric) RETURN count(rm)").get_next()[0]
+    assert gen_count == metrics_count
+
+    # Verify OF_VARIABLE edges
+    of_var_count = conn.execute("MATCH (rm:RunMetric {run_id: 'test_run_01'})-[:OF_VARIABLE]->(v:OutputVariable) RETURN count(v)").get_next()[0]
+    assert of_var_count == metrics_count
+
+    # Verify SIMULATED_WITH edges
+    sim_with_count = conn.execute("MATCH (r:SimulationRun {run_id: 'test_run_01'})-[:SIMULATED_WITH]->(p:InputParameter) RETURN count(p)").get_next()[0]
+    assert sim_with_count > 0
+
+
+def test_ingest_simulation_run_custom_config(tmp_path):
+    db_dir = str(tmp_path / "test_brain_custom.kuzu")
+    conn = init_brain_database(db_dir)
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    populate_structural_ontology(conn, rufas_root)
+
+    output_dir = rufas_root / "output"
+    custom_config = {
+        "animal.herd_information.cow_num": 150,
+        "mature_body_weight": 700.0,
+    }
+    summary = ingest_simulation_run(
+        conn,
+        output_dir,
+        run_id="test_run_custom",
+        scenario_name="freestall_custom",
+        config_data=custom_config,
+    )
+    assert summary["run_id"] == "test_run_custom"
+
+    # Verify overridden parameter value in SIMULATED_WITH edge
+    res = conn.execute("MATCH (r:SimulationRun {run_id: 'test_run_custom'})-[s:SIMULATED_WITH]->(p:InputParameter) WHERE p.id CONTAINS 'cow_num' RETURN s.value").get_next()
+    assert res is not None
+    assert res[0] == "150"
+
+
+def test_ingest_simulation_run_idempotent(tmp_path):
+    db_dir = str(tmp_path / "test_brain_ingest_idem.kuzu")
+    conn = init_brain_database(db_dir)
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    populate_structural_ontology(conn, rufas_root)
+
+    output_dir = rufas_root / "output"
+    summary1 = ingest_simulation_run(conn, output_dir, run_id="run_idem", scenario_name="freestall")
+    summary2 = ingest_simulation_run(conn, output_dir, run_id="run_idem", scenario_name="freestall")
+
+    runs_count = conn.execute("MATCH (r:SimulationRun {run_id: 'run_idem'}) RETURN count(r)").get_next()[0]
+    assert runs_count == 1
+    metrics_count = conn.execute("MATCH (rm:RunMetric {run_id: 'run_idem'}) RETURN count(rm)").get_next()[0]
+    assert metrics_count == summary1["metrics_ingested"]
+
+
+def test_ingest_cli(tmp_path, monkeypatch, capsys):
+    from tools.rufas_brain import main
+    db_dir = str(tmp_path / "cli_brain.kuzu")
+    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+
+    # 1. Run init CLI
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "init", "--db-path", db_dir, "--rufas-root", str(rufas_root)])
+    main()
+    captured = capsys.readouterr()
+    assert "initialized at" in captured.out
+
+    # 2. Run ingest CLI
+    output_dir = str(rufas_root / "output")
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "ingest", "--db-path", db_dir, "--output-dir", output_dir, "--run-id", "cli_run_01", "--scenario", "freestall"])
+    main()
+    captured = capsys.readouterr()
+    assert "ingested successfully" in captured.out
+
 
