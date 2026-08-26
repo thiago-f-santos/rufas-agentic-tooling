@@ -84,3 +84,85 @@ python -m tools.rufas_runner --task-metadata ../RuFaS/input/task_manager_metadat
 ```bash
 python -m tools.rufas_analyzer --output-dir ../RuFaS/output/
 ```
+
+---
+
+## 🧠 Installing Skills in AI Assistants & CLI Tools
+
+The skills in this suite adhere to the open [Agent Skills Specification](https://agentskills.io/specification) (`SKILL.md` format) and can be loaded automatically into major AI coding assistants and CLI tools.
+
+### ⚡ Automated One-Step Installation
+
+Use the built-in installer to deploy all 6 specialist skills into all detected CLI environments:
+
+```bash
+# Install to all supported AI CLIs at once (Universal, Claude, Antigravity)
+python -m tools.install_skills --runtime all
+
+# Or install into a specific target project repository (e.g. RuFaS)
+python -m tools.install_skills --project-repo ../RuFaS
+```
+
+---
+
+### 🔧 Manual Installation by AI Assistant / CLI Runtime
+
+#### 1. Google Antigravity (`agy` / Antigravity CLI)
+Antigravity discovers skills in user-level and project-level directories:
+- **User-Level (Global across all projects)**:
+  ```bash
+  mkdir -p ~/.gemini/antigravity-cli/skills ~/.agents/skills
+  cp -r skills/* ~/.agents/skills/
+  cp -r skills/* ~/.gemini/antigravity-cli/skills/
+  ```
+- **Project-Level (Workspace specific)**:
+  ```bash
+  mkdir -p /path/to/RuFaS/.agents/skills
+  cp -r skills/* /path/to/RuFaS/.agents/skills/
+  ```
+
+#### 2. Anthropic Claude Code (`claude`)
+Claude Code automatically indexes skills from `~/.claude/skills/` or the project root:
+- **User-Level (Global across all sessions)**:
+  ```bash
+  mkdir -p ~/.claude/skills
+  cp -r skills/* ~/.claude/skills/
+  ```
+- **Project-Level**:
+  ```bash
+  mkdir -p /path/to/project/.claude/skills
+  cp -r skills/* /path/to/project/.claude/skills/
+  ```
+
+#### 3. GitHub Copilot CLI (`gh copilot` / Copilot Workspace)
+Copilot CLI recognizes standard agent skill folders at user and repo roots:
+- **User-Level**:
+  ```bash
+  mkdir -p ~/.agents/skills
+  cp -r skills/* ~/.agents/skills/
+  ```
+- **Repository-Level**:
+  ```bash
+  mkdir -p /path/to/RuFaS/.agents/skills
+  cp -r skills/* /path/to/RuFaS/.agents/skills/
+  ```
+
+#### 4. OpenAI Codex, Gemini CLI, Cursor, Windsurf & Generic Agent Frameworks
+Modern agentic runtimes adopting the `agentskills.io` standard load from the universal alias directory:
+- **Global**:
+  ```bash
+  mkdir -p ~/.agents/skills
+  cp -r skills/* ~/.agents/skills/
+  ```
+- **Project Root**:
+  ```bash
+  mkdir -p .agents/skills
+  cp -r skills/* .agents/skills/
+  ```
+
+---
+
+### 🎯 Verifying Installed Skills
+
+Once installed, AI assistants will automatically discover and invoke the appropriate specialist when asked domain-specific questions, or you can invoke them directly using slash commands or mentions (e.g. `/rufas-specialist`, `/rufas-animal-specialist`, `/rufas-field-soil-specialist`, `/rufas-feed-storage-specialist`, `/rufas-manure-specialist`, `/rufas-eee-specialist`).
+

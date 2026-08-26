@@ -22,6 +22,7 @@ dependencies = [
 rufas-inspect = "tools.rufas_inspector:main"
 rufas-run = "tools.rufas_runner:main"
 rufas-analyze = "tools.rufas_analyzer:main"
+rufas-install-skills = "tools.install_skills:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
