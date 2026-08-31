@@ -15,13 +15,13 @@ import sys
 from pathlib import Path
 
 SKILLS = [
-    "rufas-specialist",
-    "rufas-animal-specialist",
-    "rufas-field-soil-specialist",
-    "rufas-feed-storage-specialist",
-    "rufas-manure-specialist",
-    "rufas-eee-specialist",
-    "rufas-brain-specialist",
+    "rufas",
+    "rufas-animal",
+    "rufas-field",
+    "rufas-feed",
+    "rufas-manure",
+    "rufas-eee",
+    "rufas-brain",
 ]
 
 

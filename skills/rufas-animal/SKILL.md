@@ -1,5 +1,5 @@
 ---
-name: rufas-animal-specialist
+name: rufas-animal
 description: Use when analyzing, configuring, or debugging the RuFaS Animal and Herd module, including herd demographics, Wood/Dijkstra lactation curves, NRC 2001/NASEM 2021 nutrient requirements, linear programming ration formulation, enteric methane emissions, or excretion partitioning.
 ---
 
@@ -17,10 +17,10 @@ The **RuFaS Animal Module** (`RUFAS/biophysical/animal/`) models dairy cattle he
   - Modeling enteric methane ($\text{CH}_4$) emissions and evaluating dietary mitigation (e.g. fat, fiber, additives).
   - Tracing fecal vs urinary excretion partitioning (N, TAN, P, K, degradable/non-degradable VS, moisture).
 - **Negative Routing**:
-  - Manure housing collection, storage lagoons, or digesters $\rightarrow$ `rufas-manure-specialist`.
-  - Feed storage inventory, bunker spoilage, or crop receiving $\rightarrow$ `rufas-feed-storage-specialist`.
-  - Soil hydrology, nutrient uptake, and crop growth $\rightarrow$ `rufas-field-soil-specialist`.
-  - Whole-farm economics, machinery fuel, and LCA carbon intensity $\rightarrow$ `rufas-eee-specialist`.
+  - Manure housing collection, storage lagoons, or digesters $\rightarrow$ `rufas-manure`.
+  - Feed storage inventory, bunker spoilage, or crop receiving $\rightarrow$ `rufas-feed`.
+  - Soil hydrology, nutrient uptake, and crop growth $\rightarrow$ `rufas-field`.
+  - Whole-farm economics, machinery fuel, and LCA carbon intensity $\rightarrow$ `rufas-eee`.
 
 ## 3. Module Architecture & Input Configuration Blobs
 - **Execution Pipeline**: `HerdManager` advances daily age/DIM $\rightarrow$ checks lactation status $\rightarrow$ updates pen nutritional requirements $\rightarrow$ solves least-cost LP diets via `RationOptimizer` $\rightarrow$ simulates digestion and enteric $\text{CH}_4$ $\rightarrow$ calculates excretion via `ManureExcretionCalculator` $\rightarrow$ reports statistics via `AnimalModuleReporter`.

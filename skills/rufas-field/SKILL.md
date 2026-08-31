@@ -1,5 +1,5 @@
 ---
-name: rufas-field-soil-specialist
+name: rufas-field
 description: Use when analyzing, configuring, or debugging the RuFaS Field, Soil, and Crop module, including multi-layer soil hydrology, Century/DayCent C/N biogeochemistry, crop phenology (GDD, RUE), tillage, fertilization/manure scheduling, or harvests.
 ---
 
@@ -20,11 +20,11 @@ The **RuFaS Field and Soil Module** (`RUFAS/biophysical/field/`) simulates multi
 - Investigating soil water balance anomalies, numerical hydraulic solver convergence failures, or crop harvest yield shortfalls.
 
 ### When NOT to Use
-- Animal ration formulation or feed bunk allocation (use `rufas-animal-specialist`).
-- Silo/bunker storage packing, fermentation losses, or aerobic face spoilage (use `rufas-feed-storage-specialist`).
-- Barn slurry collection, solid-liquid separation, or lagoon storage gas emissions (use `rufas-manure-specialist`).
-- Whole-farm enterprise accounting or Scope 1-3 lifecycle aggregation (use `rufas-eee-specialist`).
-- Full variable catalog lookup or graph traversal (use `rufas-brain-specialist`).
+- Animal ration formulation or feed bunk allocation (use `rufas-animal`).
+- Silo/bunker storage packing, fermentation losses, or aerobic face spoilage (use `rufas-feed`).
+- Barn slurry collection, solid-liquid separation, or lagoon storage gas emissions (use `rufas-manure`).
+- Whole-farm enterprise accounting or Scope 1-3 lifecycle aggregation (use `rufas-eee`).
+- Full variable catalog lookup or graph traversal (use `rufas-brain`).
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: rufas-feed-storage-specialist
+name: rufas-feed
 description: Use when analyzing, configuring, or debugging RuFaS Feed Storage and Inventory Management, including silo/bunker capacities, fermentation shrinkage, aerobic face spoilage, effluent leachate, inventory projection, forward purchasing, or daily diet fulfillment.
 ---
 
@@ -23,9 +23,9 @@ Positioned between crop production (`FieldManager`) and herd nutrition (`HerdMan
 - Diagnosing premature feed stockouts, emergency spot purchases, or LP solver starvation.
 
 ### When NOT to Use
-- LP diet formulation, NASEM nutrient constraints, or rumen digestion (use `rufas-animal-specialist`).
-- Soil hydrology, crop growth, tillage, or harvest scheduling (use `rufas-field-soil-specialist`).
-- Whole-farm enterprise accounting, machinery diesel, or LCA carbon intensity (use `rufas-eee-specialist`).
+- LP diet formulation, NASEM nutrient constraints, or rumen digestion (use `rufas-animal`).
+- Soil hydrology, crop growth, tillage, or harvest scheduling (use `rufas-field`).
+- Whole-farm enterprise accounting, machinery diesel, or LCA carbon intensity (use `rufas-eee`).
 
 ---
 

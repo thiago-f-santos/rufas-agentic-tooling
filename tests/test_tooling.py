@@ -74,13 +74,13 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertTrue(skills_dir.exists())
 
         expected_skills = [
-            "rufas-specialist",
-            "rufas-animal-specialist",
-            "rufas-field-soil-specialist",
-            "rufas-feed-storage-specialist",
-            "rufas-manure-specialist",
-            "rufas-eee-specialist",
-            "rufas-brain-specialist",
+            "rufas",
+            "rufas-animal",
+            "rufas-field",
+            "rufas-feed",
+            "rufas-manure",
+            "rufas-eee",
+            "rufas-brain",
         ]
 
         for skill_name in expected_skills:
@@ -207,7 +207,7 @@ class TestRuFaSTooling(unittest.TestCase):
 
     def test_animal_specialist_output_docs(self) -> None:
         """Verify animal specialist skill documentation contains tiered architecture, formulas, anchor metrics, and graph discovery."""
-        skill_path = PROJECT_ROOT / "skills" / "rufas-animal-specialist" / "SKILL.md"
+        skill_path = PROJECT_ROOT / "skills" / "rufas-animal" / "SKILL.md"
         self.assertTrue(skill_path.exists())
         content = skill_path.read_text(encoding="utf-8")
         self.assertIn("Wood", content)
@@ -219,7 +219,7 @@ class TestRuFaSTooling(unittest.TestCase):
 
     def test_field_soil_specialist_output_docs(self) -> None:
         """Verify field & soil specialist skill documentation contains tiered architecture, hydrology, C/N biophysics, anchor metrics, and graph discovery."""
-        skill_path = PROJECT_ROOT / "skills" / "rufas-field-soil-specialist" / "SKILL.md"
+        skill_path = PROJECT_ROOT / "skills" / "rufas-field" / "SKILL.md"
         self.assertTrue(skill_path.exists())
         content = skill_path.read_text(encoding="utf-8")
         self.assertTrue("Darcy" in content or "Richards" in content or "hydrology" in content.lower())
@@ -230,7 +230,7 @@ class TestRuFaSTooling(unittest.TestCase):
 
     def test_feed_storage_specialist_output_docs(self) -> None:
         """Verify feed storage specialist skill documentation contains tiered architecture, spoilage kinetics, anchor metrics, and graph discovery."""
-        skill_path = PROJECT_ROOT / "skills" / "rufas-feed-storage-specialist" / "SKILL.md"
+        skill_path = PROJECT_ROOT / "skills" / "rufas-feed" / "SKILL.md"
         self.assertTrue(skill_path.exists())
         content = skill_path.read_text(encoding="utf-8")
         self.assertTrue("bunker" in content.lower() or "silo" in content.lower())
@@ -240,7 +240,7 @@ class TestRuFaSTooling(unittest.TestCase):
 
     def test_manure_specialist_output_docs(self) -> None:
         """Verify manure specialist skill documentation contains tiered architecture, separation, digestion, anchor metrics, and graph discovery."""
-        skill_path = PROJECT_ROOT / "skills" / "rufas-manure-specialist" / "SKILL.md"
+        skill_path = PROJECT_ROOT / "skills" / "rufas-manure" / "SKILL.md"
         self.assertTrue(skill_path.exists())
         content = skill_path.read_text(encoding="utf-8")
         self.assertTrue("separator" in content.lower() or "separation" in content.lower())
@@ -250,7 +250,7 @@ class TestRuFaSTooling(unittest.TestCase):
 
     def test_eee_specialist_output_docs(self) -> None:
         """Verify EEE specialist skill documentation contains tiered architecture, LCA formulas, carbon intensity, anchor metrics, and graph discovery."""
-        skill_path = PROJECT_ROOT / "skills" / "rufas-eee-specialist" / "SKILL.md"
+        skill_path = PROJECT_ROOT / "skills" / "rufas-eee" / "SKILL.md"
         self.assertTrue(skill_path.exists())
         content = skill_path.read_text(encoding="utf-8")
         self.assertTrue("GWP" in content or "FPCM" in content or "Scope" in content)
@@ -260,8 +260,8 @@ class TestRuFaSTooling(unittest.TestCase):
 
     def test_master_rufas_specialist_output_docs(self) -> None:
         """Verify master rufas specialist skill and reference guides contain full output hierarchy and diagnostics."""
-        skill_path = PROJECT_ROOT / "skills" / "rufas-specialist" / "SKILL.md"
-        ref_path = PROJECT_ROOT / "skills" / "rufas-specialist" / "references" / "output-and-diagnostics.md"
+        skill_path = PROJECT_ROOT / "skills" / "rufas" / "SKILL.md"
+        ref_path = PROJECT_ROOT / "skills" / "rufas" / "references" / "output-and-diagnostics.md"
         self.assertTrue(skill_path.exists())
         self.assertTrue(ref_path.exists())
 
@@ -289,26 +289,25 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("134", ref_content)
 
     def test_brain_specialist_skill_exists_and_valid(self) -> None:
-        """Verify rufas-brain-specialist skill exists and contains required graph and Cypher references."""
-        skill_file = PROJECT_ROOT / "skills" / "rufas-brain-specialist" / "SKILL.md"
+        """Verify rufas-brain skill exists and contains required graph and Cypher references."""
+        skill_file = PROJECT_ROOT / "skills" / "rufas-brain" / "SKILL.md"
         self.assertTrue(skill_file.exists())
         content = skill_file.read_text(encoding="utf-8")
-        self.assertIn("rufas-brain-specialist", content)
+        self.assertIn("rufas-brain", content)
         self.assertTrue("KùzuDB" in content or "OpenCypher" in content)
         self.assertIn("CAUSALLY_INFLUENCES", content)
         self.assertIn("CORRELATES_WITH", content)
-        self.assertIn("rufas-brain", content)
 
     def test_all_skills_complete_and_valid(self) -> None:
         """Verify all 7 modular skills have valid YAML frontmatter, description, and tiered discovery documentation."""
         expected_skills = [
-            "rufas-specialist",
-            "rufas-animal-specialist",
-            "rufas-field-soil-specialist",
-            "rufas-feed-storage-specialist",
-            "rufas-manure-specialist",
-            "rufas-eee-specialist",
-            "rufas-brain-specialist",
+            "rufas",
+            "rufas-animal",
+            "rufas-field",
+            "rufas-feed",
+            "rufas-manure",
+            "rufas-eee",
+            "rufas-brain",
         ]
         skills_dir = PROJECT_ROOT / "skills"
         for skill_name in expected_skills:
@@ -317,7 +316,7 @@ class TestRuFaSTooling(unittest.TestCase):
             content = skill_file.read_text(encoding="utf-8")
             self.assertTrue(content.startswith("---"), f"Missing frontmatter in {skill_file}")
             self.assertTrue(
-                "Dynamic Graph Brain Querying" in content or "Graph Memory Brain" in content or skill_name == "rufas-specialist",
+                "Dynamic Graph Brain Querying" in content or "Graph Memory Brain" in content or skill_name == "rufas",
                 f"Missing Graph Brain Querying section in {skill_file}",
             )
             # Frontmatter validation
@@ -346,7 +345,7 @@ class TestRuFaSTooling(unittest.TestCase):
         ref_file = (
             PROJECT_ROOT
             / "skills"
-            / "rufas-brain-specialist"
+            / "rufas-brain"
             / "references"
             / "obsidian-knowledge-graph.md"
         )

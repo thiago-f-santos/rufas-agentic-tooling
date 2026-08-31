@@ -1,5 +1,5 @@
 ---
-name: rufas-eee-specialist
+name: rufas-eee
 description: Use when analyzing, configuring, or debugging the RuFaS Economics, Energy, and Emissions (EEE) module, including enterprise financial accounting (IOFC, COP, NFI), ASABE tractor fuel and electricity consumption, or whole-farm Scope 1-3 greenhouse gas lifecycle accounting (GWP100, FPCM carbon intensity).
 ---
 
@@ -17,11 +17,11 @@ The **RuFaS EEE Module** (`RUFAS/EEE/`) synthesizes whole-farm financial profita
   - Computing whole-farm greenhouse gas (GHG) emissions and carbon intensity per kilogram of Fat and Protein Corrected Milk ($\text{kg CO}_2\text{e} / \text{kg FPCM}$).
   - Quantifying Scope 3 upstream embodied emissions from purchased feeds, synthetic fertilizer manufacturing, and Land Use Change (LUC).
 - **Negative Routing**:
-  - Enteric methane biological fermentation mechanics in the cow rumen $\rightarrow$ `rufas-animal-specialist`.
-  - Manure storage kinetics, composting, and lagoon $\text{CH}_4/\text{NH}_3/\text{N}_2\text{O}$ emissions $\rightarrow$ `rufas-manure-specialist`.
-  - Soil biogeochemical denitrification and $\text{N}_2\text{O}$ field fluxes $\rightarrow$ `rufas-field-soil-specialist`.
-  - Feed storage inventory drawdown, degradation, and bunker spoilage $\rightarrow$ `rufas-feed-storage-specialist`.
-  - Cross-module graph queries and variable catalog searches $\rightarrow$ `rufas-brain-specialist`.
+  - Enteric methane biological fermentation mechanics in the cow rumen $\rightarrow$ `rufas-animal`.
+  - Manure storage kinetics, composting, and lagoon $\text{CH}_4/\text{NH}_3/\text{N}_2\text{O}$ emissions $\rightarrow$ `rufas-manure`.
+  - Soil biogeochemical denitrification and $\text{N}_2\text{O}$ field fluxes $\rightarrow$ `rufas-field`.
+  - Feed storage inventory drawdown, degradation, and bunker spoilage $\rightarrow$ `rufas-feed`.
+  - Cross-module graph queries and variable catalog searches $\rightarrow$ `rufas-brain`.
 
 ## 3. Module Architecture & Input Configuration Blobs
 - **Execution Pipeline**:

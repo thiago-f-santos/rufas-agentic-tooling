@@ -1,5 +1,5 @@
 ---
-name: rufas-manure-specialist
+name: rufas-manure
 description: Use when analyzing, configuring, or debugging the RuFaS Manure Management module, including barn collection, solid-liquid separation, storage pits/lagoons, anaerobic digestion, gaseous emissions (CH4, NH3, N2O), or field application nutrient supply.
 ---
 
@@ -22,10 +22,10 @@ The **RuFaS Manure Module** (`RUFAS/biophysical/manure/`), coordinated by `Manur
 - Fulfilling crop nutrient demands and preventing manure storage overflow.
 
 ### When NOT to Use
-- Physiological digestion and excretion partitioning in cattle (use `rufas-animal-specialist`).
-- Soil hydrology, mineralization, and crop nutrient uptake in fields (use `rufas-field-soil-specialist`).
-- Whole-farm energy, machinery fuel, and economic accounting (use `rufas-eee-specialist`).
-- Deep output variable discovery, parameter tracing, or cross-run metrics (use `rufas-brain-specialist`).
+- Physiological digestion and excretion partitioning in cattle (use `rufas-animal`).
+- Soil hydrology, mineralization, and crop nutrient uptake in fields (use `rufas-field`).
+- Whole-farm energy, machinery fuel, and economic accounting (use `rufas-eee`).
+- Deep output variable discovery, parameter tracing, or cross-run metrics (use `rufas-brain`).
 
 ---
 
