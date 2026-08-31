@@ -29,19 +29,19 @@ This skill provides the authoritative domain, architecture, data flow, input con
 
 ---
 
-## Modular Specialist Skill Ecosystem
+## Modular Specialist Skill Ecosystem (Tiered Architecture)
 
-For detailed domain-specific equations, input schemas, output variable dictionaries, and diagnostic validation rules, delegate to or consult the dedicated specialist skills:
+For detailed biophysical equations, cross-module flows, and diagnostic validation rules, consult the dedicated domain specialist skills. For variable catalog lookups (2,038 variables), parameter causal impact tracing, and cross-run statistical correlations, consult `rufas-brain-specialist`:
 
-| Domain | Specialist Skill | Primary Classes / Reporters | Variable Count |
+| Domain | Specialist Skill | Primary Classes / Focus | Role in Tiered Architecture |
 |---|---|---|---|
-| **Herd & Nutrition** | [`rufas-animal-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal-specialist/SKILL.md) | `AnimalModuleReporter`, `HerdManager`, `RationOptimizer`, `LactationCurve` | 865 variables |
-| **Field & Soil** | [`rufas-field-soil-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field-soil-specialist/SKILL.md) | `FieldDataReporter`, `FieldManager`, `Field`, `Crop` | 744 variables |
-| **Manure Management** | [`rufas-manure-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure-specialist/SKILL.md) | `Manure.SingleStreamHandler`, `ParlorCleaningHandler`, `Separator.*`, `Storage.*` | 264 variables |
-| **Feed Storage** | [`rufas-feed-storage-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed-storage-specialist/SKILL.md) | `FeedManager`, `PurchasedFeedStorage`, `StorageStructure.*` | 134 variables |
-| **EEE & Lifecycle** | [`rufas-eee-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee-specialist/SKILL.md) | `EmissionsEstimator`, `Economy`, `Energy`, `EEEManager` | 16 vars + post-sim |
-| **General / Weather** | Master Skill | `Weather`, simulation runtime time-series, disclaimer | 15 variables |
-| **Total Whole-Farm** | [`rufas-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/SKILL.md) | `SimulationEngine`, `OutputManager`, `InputManager` | **2,038 variables** |
+| **Herd & Nutrition** | [`rufas-animal-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-animal-specialist/SKILL.md) | `AnimalModuleReporter`, `HerdManager`, `RationOptimizer`, `LactationCurve` | Herd demographics, Wood's curve, LP diets, enteric $\text{CH}_4$, excretion partitioning |
+| **Field & Soil** | [`rufas-field-soil-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-field-soil-specialist/SKILL.md) | `FieldDataReporter`, `FieldManager`, `Field`, `Crop` | Hydrology, C/N biogeochemistry, $\text{N}_2\text{O}$ emissions, crop phenology |
+| **Manure Management** | [`rufas-manure-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-manure-specialist/SKILL.md) | `Manure.SingleStreamHandler`, `Separator.*`, `Storage.*`, `Digester` | Collection, separation, anaerobic digestion, storage emissions, field supply |
+| **Feed Storage** | [`rufas-feed-storage-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-feed-storage-specialist/SKILL.md) | `FeedManager`, `PurchasedFeedStorage`, `StorageStructure.*` | Bunkers/silos, packing density spoilage kinetics, shrinkage, inventory bounds |
+| **EEE & Lifecycle** | [`rufas-eee-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-eee-specialist/SKILL.md) | `EmissionsEstimator`, `Economy`, `Energy`, `EEEManager` | Scope 1/2/3 LCA GHG accounting, FPCM carbon intensity, farm finances |
+| **Graph Brain & Discovery** | [`rufas-brain-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-brain-specialist/SKILL.md) | `RuFaSGraphBrain`, `tools/rufas_brain.py` | 2,038 variable catalog lookup, OpenCypher queries, cross-run correlations |
+| **Total Whole-Farm** | [`rufas-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-specialist/SKILL.md) | `SimulationEngine`, `OutputManager`, `InputManager` | Whole-farm orchestration, metadata hierarchy, run execution |
 
 ---
 
