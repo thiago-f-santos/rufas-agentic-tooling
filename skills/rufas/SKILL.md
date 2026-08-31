@@ -1,5 +1,5 @@
 ---
-name: rufas-specialist
+name: rufas
 description: Use when analyzing, running, configuring, or debugging the RuFaS (Ruminant Farm Systems) dairy farm simulation platform, including biophysical models (animal, crop, soil, manure, feed storage), EEE (economics, energy, emissions), metadata input graphs, or simulation error diagnostics.
 ---
 
@@ -29,19 +29,19 @@ This skill provides the authoritative domain, architecture, data flow, input con
 
 ---
 
-## Modular Specialist Skill Ecosystem
+## Modular Specialist Skill Ecosystem (Tiered Architecture)
 
-For detailed domain-specific equations, input schemas, output variable dictionaries, and diagnostic validation rules, delegate to or consult the dedicated specialist skills:
+For detailed biophysical equations, cross-module flows, and diagnostic validation rules, consult the dedicated domain specialist skills. For variable catalog lookups (2,038 variables), parameter causal impact tracing, and cross-run statistical correlations, consult `rufas-brain`:
 
-| Domain | Specialist Skill | Primary Classes / Reporters | Variable Count |
+| Domain | Specialist Skill | Primary Classes / Focus | Role in Tiered Architecture |
 |---|---|---|---|
-| **Herd & Nutrition** | [`rufas-animal-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal-specialist/SKILL.md) | `AnimalModuleReporter`, `HerdManager`, `RationOptimizer`, `LactationCurve` | 865 variables |
-| **Field & Soil** | [`rufas-field-soil-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field-soil-specialist/SKILL.md) | `FieldDataReporter`, `FieldManager`, `Field`, `Crop` | 744 variables |
-| **Manure Management** | [`rufas-manure-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure-specialist/SKILL.md) | `Manure.SingleStreamHandler`, `ParlorCleaningHandler`, `Separator.*`, `Storage.*` | 264 variables |
-| **Feed Storage** | [`rufas-feed-storage-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed-storage-specialist/SKILL.md) | `FeedManager`, `PurchasedFeedStorage`, `StorageStructure.*` | 134 variables |
-| **EEE & Lifecycle** | [`rufas-eee-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee-specialist/SKILL.md) | `EmissionsEstimator`, `Economy`, `Energy`, `EEEManager` | 16 vars + post-sim |
-| **General / Weather** | Master Skill | `Weather`, simulation runtime time-series, disclaimer | 15 variables |
-| **Total Whole-Farm** | [`rufas-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/SKILL.md) | `SimulationEngine`, `OutputManager`, `InputManager` | **2,038 variables** |
+| **Herd & Nutrition** | [`rufas-animal`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal/SKILL.md) | `AnimalModuleReporter`, `HerdManager`, `RationOptimizer`, `LactationCurve` | Herd demographics, Wood's curve, LP diets, enteric $\text{CH}_4$, excretion partitioning |
+| **Field & Soil** | [`rufas-field`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field/SKILL.md) | `FieldDataReporter`, `FieldManager`, `Field`, `Crop` | Hydrology, C/N biogeochemistry, $\text{N}_2\text{O}$ emissions, crop phenology |
+| **Manure Management** | [`rufas-manure`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure/SKILL.md) | `Manure.SingleStreamHandler`, `Separator.*`, `Storage.*`, `Digester` | Collection, separation, anaerobic digestion, storage emissions, field supply |
+| **Feed Storage** | [`rufas-feed`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed/SKILL.md) | `FeedManager`, `PurchasedFeedStorage`, `StorageStructure.*` | Bunkers/silos, packing density spoilage kinetics, shrinkage, inventory bounds |
+| **EEE & Lifecycle** | [`rufas-eee`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee/SKILL.md) | `EmissionsEstimator`, `Economy`, `Energy`, `EEEManager` | Scope 1/2/3 LCA GHG accounting, FPCM carbon intensity, farm finances |
+| **Graph Brain & Discovery** | [`rufas-brain`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-brain/SKILL.md) | `RuFaSGraphBrain`, `tools/rufas_brain.py` | 2,038 variable catalog lookup, OpenCypher queries, cross-run correlations |
+| **Total Whole-Farm** | [`rufas`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/SKILL.md) | `SimulationEngine`, `OutputManager`, `InputManager` | Whole-farm orchestration, metadata hierarchy, run execution |
 
 ---
 
@@ -64,9 +64,9 @@ Daily Loop Sequence:
 ```
 
 For complete technical specifications, variable bindings, and data structure schemas, consult:
-- [simulation-flow.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/references/simulation-flow.md)
-- [biophysical-modules.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/references/biophysical-modules.md)
-- [eee-and-lifecycle.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/references/eee-and-lifecycle.md)
+- [simulation-flow.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/references/simulation-flow.md)
+- [biophysical-modules.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/references/biophysical-modules.md)
+- [eee-and-lifecycle.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/references/eee-and-lifecycle.md)
 
 ---
 
@@ -83,7 +83,7 @@ A complete scenario metadata file must define all 22 required blobs:
 `config`, `animal`, `animal_population`, `animal_mean_phenotype`, `animal_top_listing_semen`, `lactation`, `economy`, `emission`, `purchased_feeds_emissions`, `purchased_feed_land_use_change_emissions`, `feed`, `NRC_Comp`, `NASEM_Comp`, `manure_management`, `manure_processor_connection`, `crop_configurations`, `weather`, `user_feeds`, `tractor_dataset`, `EEE_constants`, `feed_storage_configurations`, `feed_storage_instances`.
 
 For cross-validation rules and schema property definitions, consult:
-- [input-metadata-schema.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/references/input-metadata-schema.md)
+- [input-metadata-schema.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/references/input-metadata-schema.md)
 
 ---
 
@@ -110,7 +110,7 @@ RuFaS structures runtime output into two distinct pool types managed by `OutputM
      - `output/logs/variables_usage_counts.txt`
 
 For detailed variable catalogs, filter syntax, and log troubleshooting, consult:
-- [output-and-diagnostics.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/references/output-and-diagnostics.md)
+- [output-and-diagnostics.md](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/references/output-and-diagnostics.md)
 
 ---
 

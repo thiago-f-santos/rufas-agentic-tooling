@@ -20,6 +20,12 @@ dependencies = [
     "scipy>=1.10.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pyyaml>=6.0"
+]
+
 [project.scripts]
 rufas-inspect = "tools.rufas_inspector:main"
 rufas-run = "tools.rufas_runner:main"

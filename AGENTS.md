@@ -6,4 +6,4 @@
 - **Branching Workflow**: Always branch from `main` for any new task (e.g. `feat/`, `fix/`) unless explicitly instructed otherwise.
 - **Context Grounding**: When inspecting or running RuFaS models, reference source schemas and cross-validation files in `RuFaS/input/metadata/`.
 - **Token Efficiency**: Use `rtk` prefix for CLI commands to optimize token consumption.
-- **Skill Usage**: Consult `skills/rufas-specialist/SKILL.md` before analyzing, modifying, or executing RuFaS simulations.
+- **Skill Usage**: Consult `skills/rufas/SKILL.md` before analyzing, modifying, or executing RuFaS simulations.

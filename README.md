@@ -10,13 +10,13 @@ RuFaS is a modular, biophysical, whole-farm simulation environment designed to s
 
 This repository provides:
 1. **RuFaS Specialist Skills Suite (`skills/`)** — 7 domain specialist skills adhering to the open [Agent Skills Specification](https://agentskills.io/specification):
-   - `rufas-specialist`: Whole-system architecture, simulation engine lifecycle, metadata graph, runner, and system diagnostics.
-   - `rufas-animal-specialist`: Herd demographics, lactation curves (Wood/Dijkstra), NASEM/NRC LP ration formulation, enteric methane ($\text{CH}_4$), and excretion.
-   - `rufas-field-soil-specialist`: Multi-layer soil water balance, N/P/C biogeochemistry, crop growth (GDD/RUE), management schedules, and harvests.
-   - `rufas-feed-storage-specialist`: Storage structures (silos, bunkers, bags), degradation/spoilage, inventory forecasting, and feed fulfillment.
-   - `rufas-manure-specialist`: Barn collection, solid-liquid separation, storage lagoons, anaerobic digestion, gaseous emissions ($\text{CH}_4, \text{NH}_3, \text{N}_2\text{O}$), and field application.
-   - `rufas-eee-specialist`: Economics (IOFC, COP), ASABE tractor machinery fuel, electricity, and Scope 1-3 GHG lifecycle accounting.
-   - `rufas-brain-specialist`: Embedded Graph Memory Brain on KùzuDB (`kuzu`), structural biophysical ontology, cross-run statistical correlation engine (Pearson $r$, Spearman $\rho$, $p$-values), causal impact tracing, 2,038 output variable catalog, OpenCypher queries, and Obsidian knowledge vault generation.
+   - `rufas`: Whole-system architecture, simulation engine lifecycle, metadata graph, runner, and system diagnostics.
+   - `rufas-animal`: Herd demographics, lactation curves (Wood/Dijkstra), NASEM/NRC LP ration formulation, enteric methane ($\text{CH}_4$), and excretion.
+   - `rufas-field`: Multi-layer soil water balance, N/P/C biogeochemistry, crop growth (GDD/RUE), management schedules, and harvests.
+   - `rufas-feed`: Storage structures (silos, bunkers, bags), degradation/spoilage, inventory forecasting, and feed fulfillment.
+   - `rufas-manure`: Barn collection, solid-liquid separation, storage lagoons, anaerobic digestion, gaseous emissions ($\text{CH}_4, \text{NH}_3, \text{N}_2\text{O}$), and field application.
+   - `rufas-eee`: Economics (IOFC, COP), ASABE tractor machinery fuel, electricity, and Scope 1-3 GHG lifecycle accounting.
+   - `rufas-brain`: Embedded Graph Memory Brain on KùzuDB (`kuzu`), structural biophysical ontology, cross-run statistical correlation engine (Pearson $r$, Spearman $\rho$, $p$-values), causal impact tracing, 2,038 output variable catalog, OpenCypher queries, and Obsidian knowledge vault generation.
 2. **Operational & Intelligence Tooling (`tools/`)**:
    - `rufas_inspector.py` (`rufas-inspect`): Validates input metadata, JSON schema conformity, and cross-validation rules across 22 configuration blobs.
    - `rufas_runner.py` (`rufas-run`): Executes RuFaS simulations with managed output filters and structured log/error capture.
@@ -40,20 +40,20 @@ rufas-agentic-tooling/
 ├── data/                              # Embedded database storage (e.g. rufas_brain.kuzu)
 ├── docs/                              # Architectural guides and documentation
 ├── skills/                            # Specialist Skills Suite (agentskills.io standard)
-│   ├── rufas-specialist/              # System-level specialist & simulation lifecycle
+│   ├── rufas/                         # System-level specialist & simulation lifecycle
 │   │   ├── SKILL.md
 │   │   └── references/                # In-depth architectural references
-│   ├── rufas-animal-specialist/       # Animal & herd specialist
+│   ├── rufas-animal/                  # Animal & herd specialist
 │   │   └── SKILL.md
-│   ├── rufas-field-soil-specialist/   # Field, soil & crop specialist
+│   ├── rufas-field/                   # Field, soil & crop specialist
 │   │   └── SKILL.md
-│   ├── rufas-feed-storage-specialist/ # Feed storage & inventory specialist
+│   ├── rufas-feed/                    # Feed storage & inventory specialist
 │   │   └── SKILL.md
-│   ├── rufas-manure-specialist/       # Manure management & treatment specialist
+│   ├── rufas-manure/                  # Manure management & treatment specialist
 │   │   └── SKILL.md
-│   ├── rufas-eee-specialist/          # Economics, energy & emissions specialist
+│   ├── rufas-eee/                     # Economics, energy & emissions specialist
 │   │   └── SKILL.md
-│   └── rufas-brain-specialist/        # Graph Memory Brain & Correlation Engine specialist
+│   └── rufas-brain/                   # Graph Memory Brain & Correlation Engine specialist
 │       ├── SKILL.md
 │       └── references/                # Graph schema & Cypher query references
 ├── tools/                             # Core CLI & Python operational tools
@@ -249,13 +249,13 @@ Modern agentic runtimes adopting the `agentskills.io` standard load from the uni
 ### 🎯 Verifying Installed Skills
 
 Once installed, AI assistants will automatically discover and invoke the appropriate specialist when asked domain-specific questions, or you can invoke them directly using slash commands or mentions:
-- `/rufas-specialist`: System architecture & simulation engine lifecycle
-- `/rufas-animal-specialist`: Herd biology, rations, lactation & animal emissions
-- `/rufas-field-soil-specialist`: Soil water, biogeochemistry, crops & harvests
-- `/rufas-feed-storage-specialist`: Feed storage degradation, spoilage & inventories
-- `/rufas-manure-specialist`: Barn collection, lagoons, digesters & field application
-- `/rufas-eee-specialist`: Economics, energy, fuel, electricity & Scope 1-3 GHG
-- `/rufas-brain-specialist`: Graph Memory Brain, causal discovery, correlation engine & variable catalog queries
+- `/rufas`: System architecture & simulation engine lifecycle
+- `/rufas-animal`: Herd biology, rations, lactation & animal emissions
+- `/rufas-field`: Soil water, biogeochemistry, crops & harvests
+- `/rufas-feed`: Feed storage degradation, spoilage & inventories
+- `/rufas-manure`: Barn collection, lagoons, digesters & field application
+- `/rufas-eee`: Economics, energy, fuel, electricity & Scope 1-3 GHG
+- `/rufas-brain`: Graph Memory Brain, causal discovery, correlation engine & variable catalog queries
 
 ---
 
