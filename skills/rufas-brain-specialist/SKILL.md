@@ -29,8 +29,8 @@ This skill equips agents to perform graph traversal, parameter impact tracing, c
 - Exporting or updating an interactive Obsidian Markdown knowledge graph vault.
 
 ### When NOT to Use
-- Single-run execution without graph querying (use [`rufas-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-specialist/SKILL.md)).
-- In-depth biophysical equation tuning within a single domain (delegate to [`rufas-animal-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal-specialist/SKILL.md), [`rufas-field-soil-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field-soil-specialist/SKILL.md), [`rufas-feed-storage-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed-storage-specialist/SKILL.md), [`rufas-manure-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure-specialist/SKILL.md), or [`rufas-eee-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee-specialist/SKILL.md)).
+- Single-run execution without graph querying (use [`rufas-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-specialist/SKILL.md)).
+- In-depth biophysical equation tuning within a single domain (delegate to [`rufas-animal-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-animal-specialist/SKILL.md), [`rufas-field-soil-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-field-soil-specialist/SKILL.md), [`rufas-feed-storage-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-feed-storage-specialist/SKILL.md), [`rufas-manure-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-manure-specialist/SKILL.md), or [`rufas-eee-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-eee-specialist/SKILL.md)).
 
 ---
 
@@ -187,11 +187,11 @@ Domain specialist skills should delegate cross-module inquiries, parameter impac
 
 | Specialist Skill | Graph Brain Query / Delegation Use Case | OpenCypher Pattern / CLI Command |
 |---|---|---|
-| [`rufas-animal-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal-specialist/SKILL.md) | Discover how dietary DMI and lactation curve changes affect manure solids and lagoon emissions. | `python -m tools.rufas_brain trace-impact --param lactation` |
-| [`rufas-field-soil-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field-soil-specialist/SKILL.md) | Cross-reference fertilizer schedules against soil carbon pools, nitrate leaching, and $\text{N}_2\text{O}$ emissions. | `python -m tools.rufas_brain trace-impact --param fertilizer_schedule` |
-| [`rufas-feed-storage-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed-storage-specialist/SKILL.md) | Trace storage shrinkage and spoilage impacts on purchased feed expenses and Scope 3 emissions. | `python -m tools.rufas_brain trace-impact --param feed_storage_configurations` |
-| [`rufas-manure-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure-specialist/SKILL.md) | Correlate anaerobic digester efficiency and separator settings with whole-farm GHG footprint. | `python -m tools.rufas_brain trace-impact --param manure_management` |
-| [`rufas-eee-specialist`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee-specialist/SKILL.md) | Trace whole-farm carbon intensity ($kg\,\text{CO}_2e/kg\,\text{FPCM}$) drivers across animal, soil, and manure modules. | `MATCH (p)-[r:CORRELATES_WITH]->(v:OutputVariable) WHERE v.name CONTAINS 'carbon_intensity' RETURN p, r` |
+| [`rufas-animal-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-animal-specialist/SKILL.md) | Discover how dietary DMI and lactation curve changes affect manure solids and lagoon emissions. | `python -m tools.rufas_brain trace-impact --param lactation` |
+| [`rufas-field-soil-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-field-soil-specialist/SKILL.md) | Cross-reference fertilizer schedules against soil carbon pools, nitrate leaching, and $\text{N}_2\text{O}$ emissions. | `python -m tools.rufas_brain trace-impact --param fertilizer_schedule` |
+| [`rufas-feed-storage-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-feed-storage-specialist/SKILL.md) | Trace storage shrinkage and spoilage impacts on purchased feed expenses and Scope 3 emissions. | `python -m tools.rufas_brain trace-impact --param feed_storage_configurations` |
+| [`rufas-manure-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-manure-specialist/SKILL.md) | Correlate anaerobic digester efficiency and separator settings with whole-farm GHG footprint. | `python -m tools.rufas_brain trace-impact --param manure_management` |
+| [`rufas-eee-specialist`](file:///home/aluno/rufas-agentic-tooling-main/skills/rufas-eee-specialist/SKILL.md) | Trace whole-farm carbon intensity ($kg\,\text{CO}_2e/kg\,\text{FPCM}$) drivers across animal, soil, and manure modules. | `MATCH (p)-[r:CORRELATES_WITH]->(v:OutputVariable) WHERE v.name CONTAINS 'carbon_intensity' RETURN p, r` |
 
 ---
 
