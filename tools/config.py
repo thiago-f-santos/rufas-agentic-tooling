@@ -73,6 +73,9 @@ def save_config(
     """
     Saves RuFaS configuration either locally (.rufas.json) or globally (~/.rufas/config.json).
     """
+    if scope not in ("local", "global"):
+        raise ValueError(f"Invalid scope: '{scope}'. Must be 'local' or 'global'.")
+
     resolved_root = str(Path(rufas_root).resolve())
     data = {
         "rufas_root": resolved_root,
@@ -112,12 +115,20 @@ def get_rufas_root(
         return candidate
 
     # 2. Environment Variables
-    env_path = os.environ.get("RUFAS_PATH") or os.environ.get("RUFAS_ROOT")
+    env_var_name = None
+    env_path = None
+    if "RUFAS_PATH" in os.environ and os.environ["RUFAS_PATH"]:
+        env_var_name = "RUFAS_PATH"
+        env_path = os.environ["RUFAS_PATH"]
+    elif "RUFAS_ROOT" in os.environ and os.environ["RUFAS_ROOT"]:
+        env_var_name = "RUFAS_ROOT"
+        env_path = os.environ["RUFAS_ROOT"]
+
     if env_path:
         candidate = Path(env_path).resolve()
         is_valid, err = validate_rufas_root(candidate)
         if require_valid and not is_valid:
-            raise RuFaSConfigError(f"RUFAS_PATH environment variable points to invalid directory: {err}")
+            raise RuFaSConfigError(f"{env_var_name} environment variable points to invalid directory: {err}")
         return candidate
 
     # 3. Check CWD (if run inside RuFaS repository directly)

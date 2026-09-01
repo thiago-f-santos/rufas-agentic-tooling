@@ -27,6 +27,7 @@ dev = [
 ]
 
 [project.scripts]
+rufas-setup = "tools.rufas_setup:main"
 rufas-inspect = "tools.rufas_inspector:main"
 rufas-run = "tools.rufas_runner:main"
 rufas-analyze = "tools.rufas_analyzer:main"

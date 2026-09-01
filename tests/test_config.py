@@ -116,6 +116,13 @@ def test_get_rufas_root_from_env_invalid(tmp_path, monkeypatch):
         get_rufas_root()
 
 
+def test_get_rufas_root_from_env_rufas_root_invalid(tmp_path, monkeypatch):
+    monkeypatch.delenv("RUFAS_PATH", raising=False)
+    monkeypatch.setenv("RUFAS_ROOT", str(tmp_path / "invalid"))
+    with pytest.raises(RuFaSConfigError, match="RUFAS_ROOT environment variable points to invalid directory"):
+        get_rufas_root()
+
+
 def test_get_rufas_root_from_cwd(mock_rufas_repo, monkeypatch):
     monkeypatch.delenv("RUFAS_PATH", raising=False)
     monkeypatch.delenv("RUFAS_ROOT", raising=False)
@@ -164,6 +171,11 @@ def test_save_and_load_global_config(mock_rufas_repo, tmp_path, monkeypatch):
 
     resolved = get_rufas_root()
     assert resolved == mock_rufas_repo.resolve()
+
+
+def test_save_config_invalid_scope(mock_rufas_repo):
+    with pytest.raises(ValueError, match="Invalid scope"):
+        save_config(mock_rufas_repo, scope="unsupported_scope")
 
 
 def test_get_rufas_root_from_sibling(mock_rufas_repo, tmp_path, monkeypatch):
