@@ -3,10 +3,33 @@ import os
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
+from tools.boundary import (
+    RuFaSBoundaryError,
+    assert_within_rufas_scope,
+    is_path_in_scope,
+    get_allowed_roots,
+)
+
 DEFAULT_GIT_URL = "https://github.com/RuminantFarmSystems/RuFaS.git"
 LOCAL_CONFIG_NAME = ".rufas.json"
 GLOBAL_CONFIG_DIR = Path.home() / ".rufas"
 GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.json"
+
+__all__ = [
+    "DEFAULT_GIT_URL",
+    "GLOBAL_CONFIG_DIR",
+    "GLOBAL_CONFIG_FILE",
+    "LOCAL_CONFIG_NAME",
+    "RuFaSConfigError",
+    "validate_rufas_root",
+    "load_config",
+    "save_config",
+    "get_rufas_root",
+    "RuFaSBoundaryError",
+    "assert_within_rufas_scope",
+    "is_path_in_scope",
+    "get_allowed_roots",
+]
 
 
 class RuFaSConfigError(Exception):
