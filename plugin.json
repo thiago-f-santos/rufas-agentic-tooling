@@ -1,0 +1,17 @@
+{
+  "name": "rufas-agentic-tooling",
+  "version": "0.2.0",
+  "description": "Agentic engineering, knowledge graph brain, and diagnostic toolkit for RuFaS whole-farm dairy modeling.",
+  "skills": [
+    "skills/rufas",
+    "skills/rufas-animal",
+    "skills/rufas-field",
+    "skills/rufas-feed",
+    "skills/rufas-manure",
+    "skills/rufas-eee",
+    "skills/rufas-brain"
+  ],
+  "rules": [
+    "AGENTS.md"
+  ]
+}
