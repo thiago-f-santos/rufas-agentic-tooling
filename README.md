@@ -368,7 +368,7 @@ rufas-agentic-tooling/
 ├── tools/                             # Core CLI & Python operational tools
 │   ├── __init__.py
 │   ├── config.py                      # Tiered configuration & path resolution engine
-│   ├── setup_wizard.py                # Interactive onboarding wizard (`rufas-setup`)
+│   ├── rufas_setup.py                 # Interactive onboarding wizard (`rufas-setup`)
 │   ├── rufas_inspector.py             # Schema & metadata validator (`rufas-inspect`)
 │   ├── rufas_runner.py                # Simulation execution runner (`rufas-run`)
 │   ├── rufas_analyzer.py              # Biophysical metrics analyzer (`rufas-analyze`)
