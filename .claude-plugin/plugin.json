@@ -1,0 +1,7 @@
+{
+  "name": "rufas-agentic-tooling",
+  "version": "0.2.0",
+  "description": "Specialist skills and diagnostics for RuFaS dairy simulation modeling.",
+  "skills": "./skills",
+  "rules": "./AGENTS.md"
+}

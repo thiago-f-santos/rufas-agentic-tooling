@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from tools.config import RuFaSConfigError, get_rufas_root
+
 try:
     import pandas as pd
     HAS_PANDAS = True
@@ -227,11 +229,33 @@ def main() -> None:
         "--output-dir",
         "-o",
         type=str,
-        default="../RuFaS/output",
-        help="Path to RuFaS output directory (default: ../RuFaS/output)",
+        default=None,
+        help="Path to RuFaS output directory (default: auto-resolved via RuFaS root / output)",
+    )
+    parser.add_argument(
+        "--rufas-root",
+        type=str,
+        default=None,
+        help="Path to RuFaS root directory (default: auto-detected)",
     )
     args = parser.parse_args()
-    out_path = Path(args.output_dir).resolve()
+
+    if args.output_dir:
+        candidate_path = Path(args.output_dir)
+        if candidate_path.exists():
+            out_path = candidate_path.resolve()
+        elif not candidate_path.is_absolute():
+            root = get_rufas_root(cli_arg=args.rufas_root, require_valid=False)
+            resolved_under_root = (root / candidate_path).resolve()
+            if resolved_under_root.exists():
+                out_path = resolved_under_root
+            else:
+                out_path = candidate_path.resolve()
+        else:
+            out_path = candidate_path.resolve()
+    else:
+        root = get_rufas_root(cli_arg=args.rufas_root, require_valid=False)
+        out_path = (root / "output").resolve()
 
     summary = summarize_output_directory(out_path)
     print_markdown_report(summary)

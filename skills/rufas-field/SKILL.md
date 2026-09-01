@@ -8,6 +8,9 @@ description: Use when analyzing, configuring, or debugging the RuFaS Field, Soil
 ## 1. Overview & Module Scope
 The **RuFaS Field and Soil Module** (`RUFAS/biophysical/field/`) simulates multi-layer vertical soil hydrology, heat conduction, nutrient transformations (C, N, P), crop phenology, root dynamics, and agronomic management events (tillage, synthetic fertilization, manure application, and harvesting). Managed by `FieldManager`, it produces farm-grown forage/grain biomass for `FeedManager`, utilizes organic slurry from `ManureManager`, and reports soil emissions, nitrate leaching, and field machinery fuel use to `EEEManager`.
 
+> [!IMPORTANT]
+> If RuFaS tools report that RuFaS is not configured, ask the user where their RuFaS project directory is located on their machine, or suggest running `rufas-setup` / setting `RUFAS_PATH`.
+
 ---
 
 ## 2. Capabilities & When to Use

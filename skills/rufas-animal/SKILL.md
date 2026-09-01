@@ -8,6 +8,9 @@ description: Use when analyzing, configuring, or debugging the RuFaS Animal and 
 ## 1. Overview & Module Scope
 The **RuFaS Animal Module** (`RUFAS/biophysical/animal/`) models dairy cattle herd dynamics, parity demographics (calves, growing heifers, breeding heifers, pregnant heifers, lactating cows across parities 1–4+, dry cows), physiological growth, lactation mechanics, linear programming (LP) least-cost diet optimization, NASEM 2021 enteric methane ($\text{CH}_4$) emissions, and excretion partitioning. Managed by `HerdManager`, it bridges feed consumption from `FeedManager` with daily manure streams delivered to `ManureManager` and financial/emissions accounting in `EEEManager`.
 
+> [!IMPORTANT]
+> If RuFaS tools report that RuFaS is not configured, ask the user where their RuFaS project directory is located on their machine, or suggest running `rufas-setup` / setting `RUFAS_PATH`.
+
 ## 2. Capabilities & When to Use
 - **Triggering Conditions**:
   - Configuring herd demographics, parity distributions, mature body weight, or culling/replacement policies.

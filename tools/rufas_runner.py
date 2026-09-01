@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from tools.config import RuFaSConfigError, get_rufas_root
+
 
 def setup_csv_filters(rufas_root: Path, enable_all: bool = True) -> None:
     """
@@ -90,8 +92,8 @@ def main() -> None:
     parser.add_argument(
         "--rufas-root",
         type=str,
-        default="../RuFaS",
-        help="Path to RuFaS root directory (default: ../RuFaS)",
+        default=None,
+        help="Path to RuFaS root directory (default: auto-detected)",
     )
     parser.add_argument(
         "--task-metadata",
@@ -135,10 +137,10 @@ def main() -> None:
     )
 
     args, unknown = parser.parse_known_args()
-    rufas_root = Path(args.rufas_root).resolve()
-
-    if not rufas_root.exists():
-        print(f"❌ Error: RuFaS root not found at {rufas_root}", file=sys.stderr)
+    try:
+        rufas_root = get_rufas_root(cli_arg=args.rufas_root)
+    except RuFaSConfigError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     if args.enable_all_csv:

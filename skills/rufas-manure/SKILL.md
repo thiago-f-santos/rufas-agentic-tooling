@@ -9,6 +9,9 @@ description: Use when analyzing, configuring, or debugging the RuFaS Manure Mana
 
 The **RuFaS Manure Module** (`RUFAS/biophysical/manure/`), coordinated by `ManureManager`, simulates dairy manure collection, transport, solid-liquid separation, storage, biological treatment (anaerobic digestion), gaseous emissions, and land application supply. It bridges daily excretion from `HerdManager` with organic nutrient delivery to `FieldManager` and Scope 1 greenhouse gas / air quality accounting in `EEEManager`.
 
+> [!IMPORTANT]
+> If RuFaS tools report that RuFaS is not configured, ask the user where their RuFaS project directory is located on their machine, or suggest running `rufas-setup` / setting `RUFAS_PATH`.
+
 ---
 
 ## 2. Capabilities & When to Use

@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
+from tools.config import RuFaSConfigError, get_rufas_root
+
 REQUIRED_FILE_BLOBS: Set[str] = {
     "config",
     "animal",
@@ -169,15 +171,15 @@ def main() -> None:
     parser.add_argument(
         "--rufas-root",
         type=str,
-        default="../RuFaS",
-        help="Path to the root directory of the RuFaS repository (default: ../RuFaS)",
+        default=None,
+        help="Path to the root directory of the RuFaS repository (default: auto-detected)",
     )
 
     args = parser.parse_args()
-    rufas_root = Path(args.rufas_root).resolve()
-
-    if not rufas_root.exists():
-        print(f"❌ Error: RuFaS root directory not found at: {rufas_root}", file=sys.stderr)
+    try:
+        rufas_root = get_rufas_root(cli_arg=args.rufas_root)
+    except RuFaSConfigError as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     print(f"🔍 Inspecting RuFaS inputs using root: {rufas_root}")

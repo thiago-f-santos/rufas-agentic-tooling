@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Union
 import kuzu
 import pandas as pd
 
+from tools.config import RuFaSConfigError, get_rufas_root
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("rufas_brain")
 
@@ -348,7 +350,7 @@ BIOPHYSICAL_CAUSAL_RULES = [
 
 def populate_structural_ontology(
     conn: kuzu.Connection,
-    rufas_root: Union[str, Path] = "../RuFaS",
+    rufas_root: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     """
     Populates the structural biophysical ontology into KùzuDB:
@@ -360,7 +362,7 @@ def populate_structural_ontology(
 
     Args:
         conn: Initialized KùzuDB connection.
-        rufas_root: Root directory of the RuFaS codebase.
+        rufas_root: Optional root directory of the RuFaS codebase (auto-detected if None).
 
     Returns:
         Summary dict containing counts of ingested entities and relationships.
@@ -369,7 +371,7 @@ def populate_structural_ontology(
     import re
     import pandas as pd
 
-    root_path = Path(rufas_root).resolve()
+    root_path = get_rufas_root(cli_arg=rufas_root)
     logger.info("Populating structural ontology using RuFaS root: %s", root_path)
 
     summary = {
@@ -2041,8 +2043,8 @@ def main() -> None:
     init_parser.add_argument(
         "--rufas-root",
         type=str,
-        default="../RuFaS",
-        help="Path to the root directory of RuFaS codebase",
+        default=None,
+        help="Path to the root directory of RuFaS codebase (default: auto-detected)",
     )
 
     ingest_parser = subparsers.add_parser("ingest", help="Ingest a simulation run and compute output metrics")
@@ -2170,10 +2172,14 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.subcommand == "init":
-        conn = init_brain_database(args.db_path)
-        summary = populate_structural_ontology(conn, args.rufas_root)
-        print(f"RuFaS Graph Memory Brain database initialized at {args.db_path}")
-        print(f"Ontology summary: {summary}")
+        try:
+            conn = init_brain_database(args.db_path)
+            summary = populate_structural_ontology(conn, args.rufas_root)
+            print(f"RuFaS Graph Memory Brain database initialized at {args.db_path}")
+            print(f"Ontology summary: {summary}")
+        except RuFaSConfigError as e:
+            print(f"❌ Error: {e}", file=sys.stderr)
+            sys.exit(1)
     elif args.subcommand == "ingest":
         conn = init_brain_database(args.db_path)
         summary = ingest_simulation_run(

@@ -49,3 +49,5 @@ data/*.kuzu
 vault/
 .superpowers/
 .codegraph/
+.worktrees/
+

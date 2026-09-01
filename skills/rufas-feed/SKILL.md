@@ -11,6 +11,9 @@ The **RuFaS Feed Storage Module** (`RUFAS/biophysical/feed_storage/`), orchestra
 
 Positioned between crop production (`FieldManager`) and herd nutrition (`HerdManager`), it ensures dietary continuity while reporting storage shrink and commercial feed procurement volumes to `EEEManager`.
 
+> [!IMPORTANT]
+> If RuFaS tools report that RuFaS is not configured, ask the user where their RuFaS project directory is located on their machine, or suggest running `rufas-setup` / setting `RUFAS_PATH`.
+
 ---
 
 ## 2. When to Use

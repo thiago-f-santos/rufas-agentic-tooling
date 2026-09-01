@@ -11,6 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from tools.config import RuFaSConfigError, get_rufas_root
 from tools.rufas_inspector import (
     REQUIRED_FILE_BLOBS,
     inspect_scenario_metadata,
@@ -22,11 +23,18 @@ from tools.rufas_analyzer import (
     summarize_modular_variables,
     summarize_output_directory,
 )
+import tools.rufas_inspector as rufas_inspector
+import tools.rufas_runner as rufas_runner
+import tools.rufas_analyzer as rufas_analyzer
+import tools.rufas_brain as rufas_brain
 
 
 class TestRuFaSTooling(unittest.TestCase):
     def setUp(self) -> None:
-        self.rufas_root = (PROJECT_ROOT.parent / "RuFaS").resolve()
+        try:
+            self.rufas_root = get_rufas_root()
+        except RuFaSConfigError:
+            self.rufas_root = (PROJECT_ROOT.parent / "RuFaS").resolve()
 
     def test_required_blobs_count(self) -> None:
         """Verify all 22 required file blobs are tracked."""
@@ -356,6 +364,42 @@ class TestRuFaSTooling(unittest.TestCase):
         self.assertIn("Dataview", content)
         self.assertIn("Graph View", content)
         self.assertIn("Canvas", content)
+
+    def test_inspector_main_resolves_config_error(self) -> None:
+        """Verify rufas_inspector.main cleanly catches RuFaSConfigError and exits with 1 on invalid path."""
+        import unittest.mock as mock
+        with mock.patch("sys.argv", ["rufas-inspect", "--rufas-root", "/non/existent/path/xyz"]):
+            with self.assertRaises(SystemExit) as cm:
+                rufas_inspector.main()
+            self.assertEqual(cm.exception.code, 1)
+
+    def test_runner_main_resolves_config_error(self) -> None:
+        """Verify rufas_runner.main cleanly catches RuFaSConfigError and exits with 1 on invalid path."""
+        import unittest.mock as mock
+        with mock.patch("sys.argv", ["rufas-run", "--rufas-root", "/non/existent/path/xyz"]):
+            with self.assertRaises(SystemExit) as cm:
+                rufas_runner.main()
+            self.assertEqual(cm.exception.code, 1)
+
+    def test_brain_main_init_resolves_config_error(self) -> None:
+        """Verify rufas_brain.main init cleanly catches RuFaSConfigError and exits with 1 on invalid path."""
+        import unittest.mock as mock
+        with mock.patch("sys.argv", ["rufas-brain", "init", "--rufas-root", "/non/existent/path/xyz"]):
+            with self.assertRaises(SystemExit) as cm:
+                rufas_brain.main()
+            self.assertEqual(cm.exception.code, 1)
+
+    def test_analyzer_main_resolves_output_dir_from_rufas_root(self) -> None:
+        """Verify rufas_analyzer.main resolves output directory relative to rufas-root."""
+        import tempfile
+        import unittest.mock as mock
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            mock_out = tmp_root / "output"
+            mock_out.mkdir()
+            (mock_out / "test.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+            with mock.patch("sys.argv", ["rufas-analyze", "--rufas-root", str(tmp_root)]):
+                rufas_analyzer.main()
 
 
 if __name__ == "__main__":
