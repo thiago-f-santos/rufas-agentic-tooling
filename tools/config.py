@@ -150,6 +150,12 @@ def get_rufas_root(
     if sibling_valid:
         return sibling
 
+    for parent in Path.cwd().parents:
+        candidate_sibling = (parent.parent / "RuFaS").resolve()
+        is_valid, _ = validate_rufas_root(candidate_sibling)
+        if is_valid:
+            return candidate_sibling
+
     if require_valid:
         raise RuFaSConfigError(
             "❌ RuFaS project path is not configured or found.\n\n"

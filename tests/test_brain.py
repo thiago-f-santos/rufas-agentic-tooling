@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 if HAS_DEPS:
+    from tools.config import get_rufas_root
     from tools.rufas_brain import (
         init_brain_database,
         populate_structural_ontology,
@@ -84,7 +85,7 @@ def test_init_brain_database_idempotent(tmp_path):
 def test_populate_structural_ontology(tmp_path):
     db_dir = str(tmp_path / "test_brain.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     
     summary = populate_structural_ontology(conn, rufas_root)
     assert isinstance(summary, dict)
@@ -132,7 +133,7 @@ def test_populate_structural_ontology(tmp_path):
 def test_populate_structural_ontology_idempotent(tmp_path):
     db_dir = str(tmp_path / "test_brain_idempotent.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     
     # Run once
     summary1 = populate_structural_ontology(conn, rufas_root)
@@ -149,7 +150,7 @@ def test_populate_structural_ontology_idempotent(tmp_path):
 def test_ingest_simulation_run(tmp_path):
     db_dir = str(tmp_path / "test_brain.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     populate_structural_ontology(conn, rufas_root)
 
     output_dir = rufas_root / "output"
@@ -185,7 +186,7 @@ def test_ingest_simulation_run(tmp_path):
 def test_ingest_simulation_run_custom_config(tmp_path):
     db_dir = str(tmp_path / "test_brain_custom.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     populate_structural_ontology(conn, rufas_root)
 
     output_dir = rufas_root / "output"
@@ -211,7 +212,7 @@ def test_ingest_simulation_run_custom_config(tmp_path):
 def test_ingest_simulation_run_idempotent(tmp_path):
     db_dir = str(tmp_path / "test_brain_ingest_idem.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     populate_structural_ontology(conn, rufas_root)
 
     output_dir = rufas_root / "output"
@@ -227,7 +228,7 @@ def test_ingest_simulation_run_idempotent(tmp_path):
 def test_ingest_cli(tmp_path, monkeypatch, capsys):
     from tools.rufas_brain import main
     db_dir = str(tmp_path / "cli_brain.kuzu")
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
 
     # 1. Run init CLI
     monkeypatch.setattr(sys, "argv", ["rufas-brain", "init", "--db-path", db_dir, "--rufas-root", str(rufas_root)])
@@ -440,7 +441,7 @@ def test_brain_query_and_impact_tracing_ontology(tmp_path):
     from tools.rufas_brain import execute_cypher_query, trace_parameter_impact, lookup_variable_info
     db_dir = str(tmp_path / "test_brain.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     populate_structural_ontology(conn, rufas_root)
 
     # 1. Execute OpenCypher Query
@@ -795,7 +796,7 @@ def test_export_obsidian_vault_empty_db(tmp_path):
 def test_export_obsidian_vault_ontology(tmp_path):
     db_dir = str(tmp_path / "ontology_obsidian.kuzu")
     conn = init_brain_database(db_dir)
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     populate_structural_ontology(conn, rufas_root)
 
     vault_dir = tmp_path / "ontology_vault"
@@ -829,7 +830,7 @@ def test_full_brain_lifecycle_integration(tmp_path):
     conn = init_brain_database(db_dir)
     assert conn is not None
 
-    rufas_root = Path(__file__).resolve().parent.parent.parent / "RuFaS"
+    rufas_root = get_rufas_root()
     assert (rufas_root / "input").is_dir(), f"RuFaS input directory not found at {rufas_root / 'input'}"
 
     # 1. Ingest structural biophysical ontology

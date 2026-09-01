@@ -223,6 +223,8 @@ def test_get_rufas_root_not_found_no_require(tmp_path, monkeypatch):
 
 def test_load_config_corrupted_json(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    fake_home = tmp_path / "fake_home"
+    monkeypatch.setattr("tools.config.GLOBAL_CONFIG_FILE", fake_home / ".rufas" / "config.json")
     (tmp_path / LOCAL_CONFIG_NAME).write_text("invalid json {", encoding="utf-8")
     cfg = load_config(local_first=True)
     assert cfg == {}
