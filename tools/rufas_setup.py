@@ -26,7 +26,7 @@ from tools.config import (
     save_config,
     validate_rufas_root,
 )
-from tools.install_skills import SKILLS, install_skills
+from tools.install_skills import SKILLS, install_plugin, install_skills
 
 
 def clone_rufas(
@@ -99,15 +99,19 @@ def setup_rufas_path(
     return target
 
 
-def install_runtime_skills(runtime: str = "all") -> Dict[str, int]:
+def install_runtime_skills(
+    runtime: str = "all",
+    use_symlink: bool = True,
+) -> Dict[str, Union[int, bool]]:
     """
     Installs RuFaS specialist skills into AI CLI runtime directories.
 
     Args:
         runtime: One of 'all', 'universal', 'claude', 'antigravity'.
+        use_symlink: If True, creates symlinks; if False, copies files.
 
     Returns:
-        Dict[str, int]: Mapping of runtime name to number of skills installed.
+        Dict[str, Union[int, bool]]: Mapping of runtime name to number of skills installed or plugin status.
     """
     project_root = Path(__file__).resolve().parent.parent
     skills_source = project_root / "skills"
@@ -115,16 +119,20 @@ def install_runtime_skills(runtime: str = "all") -> Dict[str, int]:
 
     destinations = []
     if runtime in ["all", "universal"]:
-        destinations.append(("universal", home / ".agents" / "skills"))
+        destinations.append(("skills", "universal", home / ".agents" / "skills"))
     if runtime in ["all", "claude"]:
-        destinations.append(("claude", home / ".claude" / "skills"))
+        destinations.append(("skills", "claude", home / ".claude" / "skills"))
     if runtime in ["all", "antigravity"]:
-        destinations.append(("antigravity", home / ".gemini" / "antigravity-cli" / "skills"))
+        destinations.append(("plugin", "antigravity", home / ".gemini" / "config" / "plugins"))
 
-    results = {}
-    for name, dest in destinations:
-        count = install_skills(skills_source, dest, dry_run=False)
-        results[name] = count
+    results: Dict[str, Union[int, bool]] = {}
+    for kind, name, dest in destinations:
+        if kind == "plugin":
+            success = install_plugin(project_root, dest, use_symlink=use_symlink, dry_run=False)
+            results[name] = success
+        else:
+            count = install_skills(skills_source, dest, use_symlink=use_symlink, dry_run=False)
+            results[name] = count
 
     return results
 
@@ -212,23 +220,26 @@ def interactive_wizard() -> int:
     print("  [1] All AI runtimes (Universal, Claude Code, Antigravity) [Recommended]")
     print("  [2] Universal only (~/.agents/skills)")
     print("  [3] Claude Code only (~/.claude/skills)")
-    print("  [4] Google Antigravity only (~/.gemini/antigravity-cli/skills)")
+    print("  [4] Google Antigravity only (~/.gemini/config/plugins/rufas-agentic-tooling)")
     print("  [5] Skip skill installation")
 
     skills_choice = input("Choice [1-5, default 1]: ").strip()
     if skills_choice in ["1", ""]:
-        results = install_runtime_skills("all")
-        for rt, cnt in results.items():
-            print(f"  ✅ {rt.capitalize()}: {cnt}/{len(SKILLS)} skills installed")
+        results = install_runtime_skills("all", use_symlink=True)
+        for rt, res in results.items():
+            if rt == "antigravity":
+                print("  ✅ Antigravity: plugin installed")
+            else:
+                print(f"  ✅ {rt.capitalize()}: {res}/{len(SKILLS)} skills installed")
     elif skills_choice == "2":
-        results = install_runtime_skills("universal")
+        results = install_runtime_skills("universal", use_symlink=True)
         print(f"  ✅ Universal: {results.get('universal', 0)}/{len(SKILLS)} skills installed")
     elif skills_choice == "3":
-        results = install_runtime_skills("claude")
+        results = install_runtime_skills("claude", use_symlink=True)
         print(f"  ✅ Claude Code: {results.get('claude', 0)}/{len(SKILLS)} skills installed")
     elif skills_choice == "4":
-        results = install_runtime_skills("antigravity")
-        print(f"  ✅ Antigravity: {results.get('antigravity', 0)}/{len(SKILLS)} skills installed")
+        results = install_runtime_skills("antigravity", use_symlink=True)
+        print("  ✅ Antigravity: plugin installed")
     else:
         print("  ⏩ Skipped skills installation.")
 
@@ -283,6 +294,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Install RuFaS specialist skills into AI agent runtimes.",
     )
     parser.add_argument(
+        "--mode",
+        choices=["symlink", "copy"],
+        default="symlink",
+        help="Skill & plugin installation mode: 'symlink' (default) or 'copy'.",
+    )
+    parser.add_argument(
         "--interactive",
         action="store_true",
         help="Launch interactive terminal setup wizard.",
@@ -312,10 +329,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"   Config saved to: {saved}")
 
         if args.install_skills:
-            results = install_runtime_skills(args.install_skills)
-            print(f"✅ Installed skills for runtime: {args.install_skills}")
-            for rt, cnt in results.items():
-                print(f"   - {rt}: {cnt}/{len(SKILLS)} skills")
+            use_symlink = args.mode == "symlink"
+            results = install_runtime_skills(args.install_skills, use_symlink=use_symlink)
+            print(f"✅ Installed skills for runtime: {args.install_skills} ({args.mode} mode)")
+            for rt, res in results.items():
+                if rt == "antigravity":
+                    print(f"   - {rt}: plugin installed")
+                else:
+                    print(f"   - {rt}: {res}/{len(SKILLS)} skills")
 
         return 0
     except (RuFaSConfigError, RuntimeError, ValueError) as e:
@@ -325,3 +346,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
