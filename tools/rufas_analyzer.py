@@ -10,9 +10,14 @@ import csv
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from tools.config import RuFaSConfigError, get_rufas_root
+from tools.config import (
+    RuFaSBoundaryError,
+    RuFaSConfigError,
+    assert_within_rufas_scope,
+    get_rufas_root,
+)
 
 try:
     import pandas as pd
@@ -223,6 +228,36 @@ def print_markdown_report(summary: Dict[str, Any]) -> None:
         print("\n> ℹ️ No CSV files found. If the simulation just ran, ensure `csv_all_variables.txt` filter is active in `output/output_filters/`.")
 
 
+def validate_analyzer_targets(
+    output_dir: Optional[Union[str, Path]] = None,
+    rufas_root: Optional[Union[str, Path]] = None,
+    allow_external: bool = False,
+) -> Path:
+    """
+    Validates that the output directory resides within authorized RuFaS boundaries.
+    """
+    if not output_dir:
+        if rufas_root:
+            out_p = Path(rufas_root) / "output"
+        else:
+            root = get_rufas_root(require_valid=False)
+            out_p = root / "output"
+    else:
+        candidate = Path(output_dir)
+        if candidate.is_absolute():
+            out_p = candidate
+        elif rufas_root:
+            resolved_under_root = Path(rufas_root) / candidate
+            if resolved_under_root.exists():
+                out_p = resolved_under_root
+            else:
+                out_p = candidate
+        else:
+            out_p = candidate
+
+    return assert_within_rufas_scope(out_p, rufas_root=rufas_root, allow_external=allow_external)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="RuFaS Output Analyzer: Summarize simulation CSVs and emissions.")
     parser.add_argument(
@@ -238,24 +273,24 @@ def main() -> None:
         default=None,
         help="Path to RuFaS root directory (default: auto-detected)",
     )
+    parser.add_argument(
+        "--allow-external",
+        action="store_true",
+        default=False,
+        help="Allow reading output directories outside authorized RuFaS repository boundaries",
+    )
     args = parser.parse_args()
 
-    if args.output_dir:
-        candidate_path = Path(args.output_dir)
-        if candidate_path.exists():
-            out_path = candidate_path.resolve()
-        elif not candidate_path.is_absolute():
-            root = get_rufas_root(cli_arg=args.rufas_root, require_valid=False)
-            resolved_under_root = (root / candidate_path).resolve()
-            if resolved_under_root.exists():
-                out_path = resolved_under_root
-            else:
-                out_path = candidate_path.resolve()
-        else:
-            out_path = candidate_path.resolve()
-    else:
-        root = get_rufas_root(cli_arg=args.rufas_root, require_valid=False)
-        out_path = (root / "output").resolve()
+    try:
+        rufas_root = get_rufas_root(cli_arg=args.rufas_root, require_valid=False)
+        out_path = validate_analyzer_targets(
+            output_dir=args.output_dir,
+            rufas_root=rufas_root,
+            allow_external=args.allow_external,
+        )
+    except (RuFaSConfigError, RuFaSBoundaryError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     summary = summarize_output_directory(out_path)
     print_markdown_report(summary)

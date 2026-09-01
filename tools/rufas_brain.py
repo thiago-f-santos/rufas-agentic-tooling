@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 RuFaS Graph Memory Brain & Correlation Engine
 Embedded KùzuDB property graph database for biophysical ontology, simulation history,
@@ -10,12 +11,28 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import kuzu
-import pandas as pd
+try:
+    import kuzu
+    HAS_KUZU = True
+except ImportError:
+    kuzu = None
+    HAS_KUZU = False
 
-from tools.config import RuFaSConfigError, get_rufas_root
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    pd = None
+    HAS_PANDAS = False
+
+from tools.config import (
+    RuFaSBoundaryError,
+    RuFaSConfigError,
+    assert_within_rufas_scope,
+    get_rufas_root,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("rufas_brain")
@@ -2026,14 +2043,59 @@ SORT file.name ASC
     return summary
 
 
+def validate_brain_targets(
+    db_path: Optional[Union[str, Path]] = None,
+    output_dir: Optional[Union[str, Path]] = None,
+    rufas_root: Optional[Union[str, Path]] = None,
+    allow_external: bool = False,
+) -> Tuple[Optional[Path], Optional[Path]]:
+    """
+    Validates that database path and output/vault directories reside within authorized RuFaS boundaries.
+    """
+    validated_db = None
+    if db_path and str(db_path) != ":memory:":
+        db_p = Path(db_path)
+        if not db_p.is_absolute():
+            db_p = db_p.resolve()
+        validated_db = assert_within_rufas_scope(db_p, rufas_root=rufas_root, allow_external=allow_external)
+
+    validated_out = None
+    if output_dir:
+        out_p = Path(output_dir)
+        if not out_p.is_absolute():
+            out_p = out_p.resolve()
+        validated_out = assert_within_rufas_scope(out_p, rufas_root=rufas_root, allow_external=allow_external)
+
+    return validated_db, validated_out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RuFaS Graph Memory Brain & Correlation Engine CLI",
         prog="rufas-brain",
     )
+    parser.add_argument(
+        "--allow-external",
+        action="store_true",
+        default=False,
+        help="Allow database and export paths outside authorized RuFaS repository boundaries",
+    )
+
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument(
+        "--allow-external",
+        action="store_true",
+        default=False,
+        help="Allow database and export paths outside authorized RuFaS repository boundaries",
+    )
+
     subparsers = parser.add_subparsers(dest="subcommand", help="Subcommand to run")
 
-    init_parser = subparsers.add_parser("init", help="Initialize KùzuDB brain database and populate ontology")
+    init_parser = subparsers.add_parser(
+        "init",
+        parents=[common_parser],
+        help="Initialize KùzuDB brain database and populate ontology",
+    )
     init_parser.add_argument(
         "--db-path",
         type=str,
@@ -2047,7 +2109,11 @@ def main() -> None:
         help="Path to the root directory of RuFaS codebase (default: auto-detected)",
     )
 
-    ingest_parser = subparsers.add_parser("ingest", help="Ingest a simulation run and compute output metrics")
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        parents=[common_parser],
+        help="Ingest a simulation run and compute output metrics",
+    )
     ingest_parser.add_argument(
         "--output-dir",
         type=str,
@@ -2074,7 +2140,11 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
-    corr_parser = subparsers.add_parser("compute-correlations", help="Compute statistical cross-run correlations")
+    corr_parser = subparsers.add_parser(
+        "compute-correlations",
+        parents=[common_parser],
+        help="Compute statistical cross-run correlations",
+    )
     corr_parser.add_argument(
         "--min-r",
         type=float,
@@ -2100,7 +2170,11 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
-    query_parser = subparsers.add_parser("query", help="Execute an OpenCypher query on the graph memory brain")
+    query_parser = subparsers.add_parser(
+        "query",
+        parents=[common_parser],
+        help="Execute an OpenCypher query on the graph memory brain",
+    )
     query_parser.add_argument(
         "query",
         type=str,
@@ -2118,7 +2192,11 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
-    trace_parser = subparsers.add_parser("trace-impact", help="Trace biophysical causal pathways and statistical correlations for an input parameter")
+    trace_parser = subparsers.add_parser(
+        "trace-impact",
+        parents=[common_parser],
+        help="Trace biophysical causal pathways and statistical correlations for an input parameter",
+    )
     trace_parser.add_argument(
         "--param",
         type=str,
@@ -2137,7 +2215,11 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
-    lookup_parser = subparsers.add_parser("lookup-var", help="Lookup output variable metadata, causal drivers, and correlations")
+    lookup_parser = subparsers.add_parser(
+        "lookup-var",
+        parents=[common_parser],
+        help="Lookup output variable metadata, causal drivers, and correlations",
+    )
     lookup_parser.add_argument(
         "--name",
         type=str,
@@ -2156,7 +2238,11 @@ def main() -> None:
         help="Path to KùzuDB database folder",
     )
 
-    export_parser = subparsers.add_parser("export-obsidian", help="Export RuFaS knowledge graph to an Obsidian Markdown vault")
+    export_parser = subparsers.add_parser(
+        "export-obsidian",
+        parents=[common_parser],
+        help="Export RuFaS knowledge graph to an Obsidian Markdown vault",
+    )
     export_parser.add_argument(
         "--output-dir",
         type=str,
@@ -2171,124 +2257,146 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    if args.subcommand == "init":
-        try:
-            conn = init_brain_database(args.db_path)
+    allow_ext = getattr(args, "allow_external", False)
+
+    try:
+        if args.subcommand == "init":
+            rufas_root = get_rufas_root(cli_arg=args.rufas_root) if args.rufas_root else None
+            val_db, _ = validate_brain_targets(
+                db_path=args.db_path,
+                rufas_root=rufas_root,
+                allow_external=allow_ext,
+            )
+            conn = init_brain_database(val_db or args.db_path)
             summary = populate_structural_ontology(conn, args.rufas_root)
             print(f"RuFaS Graph Memory Brain database initialized at {args.db_path}")
             print(f"Ontology summary: {summary}")
-        except RuFaSConfigError as e:
-            print(f"❌ Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    elif args.subcommand == "ingest":
-        conn = init_brain_database(args.db_path)
-        summary = ingest_simulation_run(
-            conn,
-            output_dir=args.output_dir,
-            run_id=args.run_id,
-            scenario_name=args.scenario_name,
-        )
-        print(f"Simulation run '{args.run_id}' ingested successfully.")
-        print(f"Ingestion summary: {summary}")
-    elif args.subcommand == "compute-correlations":
-        conn = init_brain_database(args.db_path)
-        corrs = compute_statistical_correlations(
-            conn,
-            min_r=args.min_r,
-            max_p=args.max_p,
-            min_samples=args.min_samples,
-        )
-        print(f"Correlations computed: Found {len(corrs)} significant relationships (|r| >= {args.min_r}, p <= {args.max_p}).")
-        for c in corrs[:20]:
-            print(f"  • {c['param_id']} -> {c['var_name']}: Pearson r={c['pearson_r']:.3f}, Spearman rho={c['spearman_r']:.3f}, p={c['p_value']:.4e} (N={c['sample_size']})")
-    elif args.subcommand == "query":
-        conn = init_brain_database(args.db_path)
-        rows = execute_cypher_query(conn, args.query)
-        if args.json:
-            print(json.dumps(rows, indent=2, default=str))
-        else:
-            if not rows:
-                print("Query returned 0 rows.")
+        elif args.subcommand == "ingest":
+            val_db, val_out = validate_brain_targets(
+                db_path=args.db_path,
+                output_dir=args.output_dir,
+                allow_external=allow_ext,
+            )
+            conn = init_brain_database(val_db or args.db_path)
+            summary = ingest_simulation_run(
+                conn,
+                output_dir=val_out or args.output_dir,
+                run_id=args.run_id,
+                scenario_name=args.scenario_name,
+            )
+            print(f"Simulation run '{args.run_id}' ingested successfully.")
+            print(f"Ingestion summary: {summary}")
+        elif args.subcommand == "compute-correlations":
+            val_db, _ = validate_brain_targets(db_path=args.db_path, allow_external=allow_ext)
+            conn = init_brain_database(val_db or args.db_path)
+            corrs = compute_statistical_correlations(
+                conn,
+                min_r=args.min_r,
+                max_p=args.max_p,
+                min_samples=args.min_samples,
+            )
+            print(f"Correlations computed: Found {len(corrs)} significant relationships (|r| >= {args.min_r}, p <= {args.max_p}).")
+            for c in corrs[:20]:
+                print(f"  • {c['param_id']} -> {c['var_name']}: Pearson r={c['pearson_r']:.3f}, Spearman rho={c['spearman_r']:.3f}, p={c['p_value']:.4e} (N={c['sample_size']})")
+        elif args.subcommand == "query":
+            val_db, _ = validate_brain_targets(db_path=args.db_path, allow_external=allow_ext)
+            conn = init_brain_database(val_db or args.db_path)
+            rows = execute_cypher_query(conn, args.query)
+            if args.json:
+                print(json.dumps(rows, indent=2, default=str))
             else:
-                df = pd.DataFrame(rows)
-                print(df.to_string(index=False))
-                print(f"\n({len(rows)} row(s) returned)")
-    elif args.subcommand == "trace-impact":
-        conn = init_brain_database(args.db_path)
-        impact = trace_parameter_impact(conn, args.param)
-        if args.json:
-            print(json.dumps(impact, indent=2, default=str))
+                if not rows:
+                    print("Query returned 0 rows.")
+                else:
+                    df = pd.DataFrame(rows)
+                    print(df.to_string(index=False))
+                    print(f"\n({len(rows)} row(s) returned)")
+        elif args.subcommand == "trace-impact":
+            val_db, _ = validate_brain_targets(db_path=args.db_path, allow_external=allow_ext)
+            conn = init_brain_database(val_db or args.db_path)
+            impact = trace_parameter_impact(conn, args.param)
+            if args.json:
+                print(json.dumps(impact, indent=2, default=str))
+            else:
+                print("==================================================")
+                print(f"Parameter Impact Trace for: '{args.param}'")
+                print(f"Matched parameters: {impact['matched_parameters_count']}")
+                print("==================================================")
+                if impact["matched_parameters_count"] == 0:
+                    print("No parameters matching query.")
+                for p in impact["parameters"]:
+                    print(f"\n📌 Parameter: {p['id']}")
+                    print(f"   Name: {p['param_name']} | Blob: {p['blob_name']} | Type: {p['data_type']} | Unit: {p['unit'] or 'N/A'}")
+                    print(f"   Default: {p['default_value']}")
+                    if p["description"]:
+                        print(f"   Description: {p['description']}")
+
+                    print(f"\n   🔬 Biophysical Causal Pathways ({len(p['causal_pathways'])}):")
+                    if not p["causal_pathways"]:
+                        print("      (None identified)")
+                    for c in p["causal_pathways"]:
+                        print(f"      • [{c.get('module', '')}] {c['output_variable']} ({c.get('unit', '')})")
+                        print(f"        Pathway: {c['pathway']}")
+                        print(f"        Mechanism: {c['mechanism']}")
+
+                    print(f"\n   📊 Empirical Statistical Correlations ({len(p['correlations'])}):")
+                    if not p["correlations"]:
+                        print("      (None computed or below threshold)")
+                    for cr in p["correlations"]:
+                        print(f"      • [{cr.get('module', '')}] {cr['output_variable']} ({cr.get('unit', '')})")
+                        print(f"        Pearson r: {cr['pearson_r']:.3f} | Spearman rho: {cr['spearman_r']:.3f} | p-val: {cr['p_value']:.4e} (N={cr['sample_size']})")
+        elif args.subcommand == "lookup-var":
+            val_db, _ = validate_brain_targets(db_path=args.db_path, allow_external=allow_ext)
+            conn = init_brain_database(val_db or args.db_path)
+            var_infos = lookup_variable_info(conn, args.name)
+            if args.json:
+                print(json.dumps(var_infos, indent=2, default=str))
+            else:
+                print("==================================================")
+                print(f"Variable Lookup for: '{args.name}'")
+                print(f"Matched variables: {len(var_infos)}")
+                print("==================================================")
+                if not var_infos:
+                    print("No variables matching query.")
+                for v in var_infos:
+                    print(f"\n📈 Variable: {v['name']}")
+                    print(f"   Module: {v['module']} | Category: {v['category']} | Unit: {v['unit'] or 'N/A'}")
+                    print(f"   Reporter Class: {v['reporter_class']}")
+                    print(f"   Description: {v['description']}")
+
+                    print(f"\n   ⚙️  Incoming Biophysical Drivers ({len(v['causal_inputs'])}):")
+                    if not v["causal_inputs"]:
+                        print("      (None identified)")
+                    for ci in v["causal_inputs"]:
+                        print(f"      • {ci['param_id']} (Blob: {ci['blob_name']})")
+                        print(f"        Pathway: {ci['pathway']}")
+                        print(f"        Mechanism: {ci['mechanism']}")
+
+                    print(f"\n   📊 Correlated Input Parameters ({len(v['correlated_inputs'])}):")
+                    if not v["correlated_inputs"]:
+                        print("      (None computed)")
+                    for cri in v["correlated_inputs"]:
+                        print(f"      • {cri['param_id']}: Pearson r={cri['pearson_r']:.3f}, Spearman rho={cri['spearman_r']:.3f}, p={cri['p_value']:.4e} (N={cri['sample_size']})")
+
+                    if v["run_metrics"]:
+                        print(f"\n   🏃 Simulation Run Metrics ({len(v['run_metrics'])}):")
+                        for rm in v["run_metrics"]:
+                            print(f"      • [{rm['run_id']}] Mean={rm['mean_val']:.3f}, Min={rm['min_val']:.3f}, Max={rm['max_val']:.3f}, Sum={rm['sum_val']:.3f} (N={rm['non_null_count']})")
+        elif args.subcommand == "export-obsidian":
+            val_db, val_out = validate_brain_targets(
+                db_path=args.db_path,
+                output_dir=args.output_dir,
+                allow_external=allow_ext,
+            )
+            conn = init_brain_database(val_db or args.db_path)
+            stats = export_obsidian_vault(conn, val_out or args.output_dir)
+            print(f"Obsidian knowledge graph vault exported to {val_out or args.output_dir}")
+            print(f"Export statistics: {stats}")
         else:
-            print("==================================================")
-            print(f"Parameter Impact Trace for: '{args.param}'")
-            print(f"Matched parameters: {impact['matched_parameters_count']}")
-            print("==================================================")
-            if impact["matched_parameters_count"] == 0:
-                print("No parameters matching query.")
-            for p in impact["parameters"]:
-                print(f"\n📌 Parameter: {p['id']}")
-                print(f"   Name: {p['param_name']} | Blob: {p['blob_name']} | Type: {p['data_type']} | Unit: {p['unit'] or 'N/A'}")
-                print(f"   Default: {p['default_value']}")
-                if p["description"]:
-                    print(f"   Description: {p['description']}")
-
-                print(f"\n   🔬 Biophysical Causal Pathways ({len(p['causal_pathways'])}):")
-                if not p["causal_pathways"]:
-                    print("      (None identified)")
-                for c in p["causal_pathways"]:
-                    print(f"      • [{c.get('module', '')}] {c['output_variable']} ({c.get('unit', '')})")
-                    print(f"        Pathway: {c['pathway']}")
-                    print(f"        Mechanism: {c['mechanism']}")
-
-                print(f"\n   📊 Empirical Statistical Correlations ({len(p['correlations'])}):")
-                if not p["correlations"]:
-                    print("      (None computed or below threshold)")
-                for cr in p["correlations"]:
-                    print(f"      • [{cr.get('module', '')}] {cr['output_variable']} ({cr.get('unit', '')})")
-                    print(f"        Pearson r: {cr['pearson_r']:.3f} | Spearman rho: {cr['spearman_r']:.3f} | p-val: {cr['p_value']:.4e} (N={cr['sample_size']})")
-    elif args.subcommand == "lookup-var":
-        conn = init_brain_database(args.db_path)
-        var_infos = lookup_variable_info(conn, args.name)
-        if args.json:
-            print(json.dumps(var_infos, indent=2, default=str))
-        else:
-            print("==================================================")
-            print(f"Variable Lookup for: '{args.name}'")
-            print(f"Matched variables: {len(var_infos)}")
-            print("==================================================")
-            if not var_infos:
-                print("No variables matching query.")
-            for v in var_infos:
-                print(f"\n📈 Variable: {v['name']}")
-                print(f"   Module: {v['module']} | Category: {v['category']} | Unit: {v['unit'] or 'N/A'}")
-                print(f"   Reporter Class: {v['reporter_class']}")
-                print(f"   Description: {v['description']}")
-
-                print(f"\n   ⚙️  Incoming Biophysical Drivers ({len(v['causal_inputs'])}):")
-                if not v["causal_inputs"]:
-                    print("      (None identified)")
-                for ci in v["causal_inputs"]:
-                    print(f"      • {ci['param_id']} (Blob: {ci['blob_name']})")
-                    print(f"        Pathway: {ci['pathway']}")
-                    print(f"        Mechanism: {ci['mechanism']}")
-
-                print(f"\n   📊 Correlated Input Parameters ({len(v['correlated_inputs'])}):")
-                if not v["correlated_inputs"]:
-                    print("      (None computed)")
-                for cri in v["correlated_inputs"]:
-                    print(f"      • {cri['param_id']}: Pearson r={cri['pearson_r']:.3f}, Spearman rho={cri['spearman_r']:.3f}, p={cri['p_value']:.4e} (N={cri['sample_size']})")
-
-                if v["run_metrics"]:
-                    print(f"\n   🏃 Simulation Run Metrics ({len(v['run_metrics'])}):")
-                    for rm in v["run_metrics"]:
-                        print(f"      • [{rm['run_id']}] Mean={rm['mean_val']:.3f}, Min={rm['min_val']:.3f}, Max={rm['max_val']:.3f}, Sum={rm['sum_val']:.3f} (N={rm['non_null_count']})")
-    elif args.subcommand == "export-obsidian":
-        conn = init_brain_database(args.db_path)
-        stats = export_obsidian_vault(conn, args.output_dir)
-        print(f"Obsidian knowledge graph vault exported to {args.output_dir}")
-        print(f"Export statistics: {stats}")
-    else:
-        parser.print_help()
+            parser.print_help()
+    except (RuFaSConfigError, RuFaSBoundaryError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

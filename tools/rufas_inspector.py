@@ -9,15 +9,20 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from tools.config import RuFaSConfigError, get_rufas_root
+from tools.config import (
+    RuFaSBoundaryError,
+    RuFaSConfigError,
+    assert_within_rufas_scope,
+    get_rufas_root,
+)
 
 REQUIRED_FILE_BLOBS: Set[str] = {
     "config",
     "animal",
     "animal_population",
-    "animal_mean_phenotype",
+    "animal_net_merit",
     "animal_top_listing_semen",
     "lactation",
     "economy",
@@ -154,6 +159,24 @@ def inspect_task_metadata(
     return is_valid, errors, warnings
 
 
+def validate_inspector_targets(
+    scenario_path: Optional[Union[str, Path]] = None,
+    task_metadata_path: Optional[Union[str, Path]] = None,
+    rufas_root: Optional[Union[str, Path]] = None,
+    allow_external: bool = False,
+) -> Optional[Path]:
+    """
+    Validates that scenario or task manager metadata paths reside within authorized RuFaS boundaries.
+    """
+    target = scenario_path or task_metadata_path
+    if not target:
+        return None
+    p = Path(target)
+    if not p.is_absolute() and rufas_root:
+        p = Path(rufas_root) / p
+    return assert_within_rufas_scope(p, rufas_root=rufas_root, allow_external=allow_external)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RuFaS Inspector: Validate metadata hierarchy, schemas, and file links."
@@ -174,33 +197,47 @@ def main() -> None:
         default=None,
         help="Path to the root directory of the RuFaS repository (default: auto-detected)",
     )
+    parser.add_argument(
+        "--allow-external",
+        action="store_true",
+        default=False,
+        help="Allow file access outside authorized RuFaS repository boundaries",
+    )
 
     args = parser.parse_args()
     try:
         rufas_root = get_rufas_root(cli_arg=args.rufas_root)
-    except RuFaSConfigError as e:
+        print(f"🔍 Inspecting RuFaS inputs using root: {rufas_root}")
+
+        if args.task_metadata:
+            tm_path = validate_inspector_targets(
+                task_metadata_path=args.task_metadata,
+                rufas_root=rufas_root,
+                allow_external=args.allow_external,
+            )
+            print(f"📋 Checking Task Manager Metadata: {tm_path}")
+            valid, errors, warnings = inspect_task_metadata(tm_path, rufas_root)
+        elif args.scenario:
+            sc_path = validate_inspector_targets(
+                scenario_path=args.scenario,
+                rufas_root=rufas_root,
+                allow_external=args.allow_external,
+            )
+            print(f"📋 Checking Scenario Metadata: {sc_path}")
+            valid, errors, warnings = inspect_scenario_metadata(sc_path, rufas_root)
+        else:
+            # Default check default task manager metadata
+            default_tm = rufas_root / "input/task_manager_metadata.json"
+            tm_path = validate_inspector_targets(
+                task_metadata_path=default_tm,
+                rufas_root=rufas_root,
+                allow_external=args.allow_external,
+            )
+            print(f"📋 Checking Default Task Manager Metadata: {tm_path}")
+            valid, errors, warnings = inspect_task_metadata(tm_path, rufas_root)
+    except (RuFaSConfigError, RuFaSBoundaryError) as e:
         print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
-
-    print(f"🔍 Inspecting RuFaS inputs using root: {rufas_root}")
-
-    if args.task_metadata:
-        tm_path = Path(args.task_metadata)
-        if not tm_path.is_absolute():
-            tm_path = rufas_root / tm_path
-        print(f"📋 Checking Task Manager Metadata: {tm_path}")
-        valid, errors, warnings = inspect_task_metadata(tm_path, rufas_root)
-    elif args.scenario:
-        sc_path = Path(args.scenario)
-        if not sc_path.is_absolute():
-            sc_path = rufas_root / sc_path
-        print(f"📋 Checking Scenario Metadata: {sc_path}")
-        valid, errors, warnings = inspect_scenario_metadata(sc_path, rufas_root)
-    else:
-        # Default check default task manager metadata
-        default_tm = rufas_root / "input/task_manager_metadata.json"
-        print(f"📋 Checking Default Task Manager Metadata: {default_tm}")
-        valid, errors, warnings = inspect_task_metadata(default_tm, rufas_root)
 
     for wrn in warnings:
         print(f"⚠️  WARNING: {wrn}")

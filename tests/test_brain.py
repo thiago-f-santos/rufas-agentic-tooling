@@ -231,14 +231,14 @@ def test_ingest_cli(tmp_path, monkeypatch, capsys):
     rufas_root = get_rufas_root()
 
     # 1. Run init CLI
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "init", "--db-path", db_dir, "--rufas-root", str(rufas_root)])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "init", "--db-path", db_dir, "--rufas-root", str(rufas_root), "--allow-external"])
     main()
     captured = capsys.readouterr()
     assert "initialized at" in captured.out
 
     # 2. Run ingest CLI
     output_dir = str(rufas_root / "output")
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "ingest", "--db-path", db_dir, "--output-dir", output_dir, "--run-id", "cli_run_01", "--scenario", "freestall"])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "ingest", "--db-path", db_dir, "--output-dir", output_dir, "--run-id", "cli_run_01", "--scenario", "freestall", "--allow-external"])
     main()
     captured = capsys.readouterr()
     assert "ingested successfully" in captured.out
@@ -365,7 +365,7 @@ def test_compute_correlations_cli(tmp_path, monkeypatch, capsys):
         conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (p:InputParameter {id: 'cow_num'}) CREATE (r)-[:SIMULATED_WITH {value: $val}]->(p)", {"rid": rid, "val": str(50 * (i + 1))})
         conn.execute("MATCH (r:SimulationRun {run_id: $rid}), (v:OutputVariable {name: 'milk_yield'}) CREATE (rm:RunMetric {id: $mid, run_id: $rid, var_name: 'milk_yield', mean_val: $val, min_val: 0.0, max_val: 0.0, sum_val: 0.0, non_null_count: 10}) CREATE (r)-[:GENERATED_METRIC]->(rm) CREATE (rm)-[:OF_VARIABLE]->(v)", {"rid": rid, "mid": f"{rid}::m", "val": float(1000 * (i + 1))})
 
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "compute-correlations", "--db-path", db_dir, "--min-r", "0.5", "--max-p", "0.05", "--min-samples", "3"])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "compute-correlations", "--db-path", db_dir, "--min-r", "0.5", "--max-p", "0.05", "--min-samples", "3", "--allow-external"])
     main()
     captured = capsys.readouterr()
     assert "Correlations computed" in captured.out or "Found" in captured.out or "cow_num" in captured.out
@@ -591,12 +591,12 @@ def test_cli_query_impact_and_lookup(tmp_path, monkeypatch, capsys):
     conn.execute("MATCH (p:InputParameter {id: 'cow_num'}), (v:OutputVariable {name: 'milk_production'}) CREATE (p)-[:CORRELATES_WITH {pearson_r: 0.99, spearman_r: 0.99, p_value: 0.001, sample_size: 5}]->(v)")
 
     # 1. Test CLI query (tabular and JSON)
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "query", "MATCH (p:InputParameter) RETURN p.id, p.unit", "--db-path", db_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "query", "MATCH (p:InputParameter) RETURN p.id, p.unit", "--db-path", db_dir, "--allow-external"])
     main()
     captured = capsys.readouterr()
     assert "cow_num" in captured.out
 
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "query", "MATCH (p:InputParameter) RETURN p.id, p.unit", "--json", "--db-path", db_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "query", "MATCH (p:InputParameter) RETURN p.id, p.unit", "--json", "--db-path", db_dir, "--allow-external"])
     main()
     captured_json = capsys.readouterr()
     data = json.loads(captured_json.out)
@@ -604,13 +604,13 @@ def test_cli_query_impact_and_lookup(tmp_path, monkeypatch, capsys):
     assert data[0]["p.id"] == "cow_num"
 
     # 2. Test CLI trace-impact (text and JSON)
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "trace-impact", "--param", "cow_num", "--db-path", db_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "trace-impact", "--param", "cow_num", "--db-path", db_dir, "--allow-external"])
     main()
     captured_trace = capsys.readouterr()
     assert "Parameter Impact Trace" in captured_trace.out
     assert "milk_production" in captured_trace.out
 
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "trace-impact", "--param", "cow_num", "--json", "--db-path", db_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "trace-impact", "--param", "cow_num", "--json", "--db-path", db_dir, "--allow-external"])
     main()
     captured_trace_json = capsys.readouterr()
     trace_data = json.loads(captured_trace_json.out)
@@ -618,13 +618,13 @@ def test_cli_query_impact_and_lookup(tmp_path, monkeypatch, capsys):
     assert trace_data["parameters"][0]["id"] == "cow_num"
 
     # 3. Test CLI lookup-var (text and JSON)
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "lookup-var", "--name", "milk_production", "--db-path", db_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "lookup-var", "--name", "milk_production", "--db-path", db_dir, "--allow-external"])
     main()
     captured_lookup = capsys.readouterr()
     assert "milk_production" in captured_lookup.out
     assert "AnimalReporter" in captured_lookup.out
 
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "lookup-var", "--name", "milk_production", "--json", "--db-path", db_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "lookup-var", "--name", "milk_production", "--json", "--db-path", db_dir, "--allow-external"])
     main()
     captured_lookup_json = capsys.readouterr()
     lookup_data = json.loads(captured_lookup_json.out)
@@ -766,7 +766,7 @@ def test_export_obsidian_vault_cli(tmp_path, monkeypatch, capsys):
     conn.execute("CREATE (p:InputParameter {id: 'animal.cow_num', blob_name: 'animal', param_name: 'cow_num', data_type: 'int', unit: 'animals', default_value: '100', description: 'Herd size'})")
 
     vault_dir = str(tmp_path / "cli_vault")
-    monkeypatch.setattr(sys, "argv", ["rufas-brain", "export-obsidian", "--db-path", db_dir, "--output-dir", vault_dir])
+    monkeypatch.setattr(sys, "argv", ["rufas-brain", "export-obsidian", "--db-path", db_dir, "--output-dir", vault_dir, "--allow-external"])
     main()
 
     captured = capsys.readouterr()
