@@ -245,27 +245,30 @@ rufas-brain export-obsidian --output-dir vault/
 
 ---
 
-### 6. `rufas-install-skills` — Multi-Runtime Skill Distributor
+### 6. `rufas-install-skills` — Multi-Runtime Skill & Plugin Distributor
 
-Installs and validates the 7 specialist skills across all major AI assistant runtime directories.
+Installs and validates the 7 specialist skills and plugin manifests across all major AI assistant runtime directories. By default, `rufas-install-skills` establishes dynamic **symbolic links (symlinks)**, ensuring that modifications in your repository are immediately reflected across all AI CLI environments without requiring re-installation.
 
 ```bash
-# Install to all supported AI assistants (Universal, Claude Code, Antigravity)
+# Install to all supported AI assistants using symlinks (default)
 rufas-install-skills --runtime all
 
-# Install specifically for Google Antigravity (~/.gemini/antigravity-cli/skills)
+# Install full plugin for Google Antigravity (~/.gemini/config/plugins/rufas-agentic-tooling)
 rufas-install-skills --runtime antigravity
 
-# Install specifically for Anthropic Claude Code (~/.claude/skills)
+# Install specialist skills for Anthropic Claude Code (~/.claude/skills)
 rufas-install-skills --runtime claude
 
-# Install to Universal Agent Skills alias (~/.agents/skills)
+# Install specialist skills to Universal Agent Skills alias (~/.agents/skills)
 rufas-install-skills --runtime universal
 
-# Install into a target project repository (.agents/skills)
+# Install specialist skills into a target project repository (.agents/skills)
 rufas-install-skills --project-repo /path/to/RuFaS
 
-# Run validation check without copying files
+# Fallback: Copy physical directories instead of symbolic links
+rufas-install-skills --runtime all --mode copy
+
+# Run validation check without copying or linking files
 rufas-install-skills --dry-run
 ```
 
@@ -290,27 +293,27 @@ The suite includes 7 specialized AI skills conforming to the [Agent Skills Speci
 ## 📦 AI Assistant & CLI Vendor Installation Guide
 
 ### 1. Google Antigravity (`agy`)
-Antigravity discovers skills via plugin manifests (`plugin.json`) or local skill directories:
-- **Plugin Install (One-step)**:
-  ```bash
-  agy plugin add https://github.com/thiago-f-santos/rufas-agentic-tooling
-  ```
-- **Global Skill Directory**:
+Antigravity discovers skills and tools via plugin manifests (`plugin.json`):
+- **Plugin Symlink / Install (Direct)**:
   ```bash
   rufas-install-skills --runtime antigravity
+  ```
+- **Remote Plugin Add**:
+  ```bash
+  agy plugin add https://github.com/thiago-f-santos/rufas-agentic-tooling
   ```
 
 ---
 
 ### 2. Anthropic Claude Code (`claude`)
-Claude Code automatically indexes skills from `.claude-plugin/plugin.json` or `~/.claude/skills/`:
-- **Plugin Install (One-step)**:
-  ```bash
-  claude plugin add https://github.com/thiago-f-santos/rufas-agentic-tooling
-  ```
-- **Global Skill Directory**:
+Claude Code indexes skills from `.claude-plugin/plugin.json` or `~/.claude/skills/`:
+- **Skills Symlink / Install (Direct)**:
   ```bash
   rufas-install-skills --runtime claude
+  ```
+- **Remote Plugin Add**:
+  ```bash
+  claude plugin add https://github.com/thiago-f-santos/rufas-agentic-tooling
   ```
 
 ---
@@ -318,6 +321,9 @@ Claude Code automatically indexes skills from `.claude-plugin/plugin.json` or `~
 ### 3. Universal Agent Skills (`npx skills`)
 Installs into universal standards-compliant agent directories (`~/.agents/skills`):
 ```bash
+rufas-install-skills --runtime universal
+# Or via npx skills package manager:
+
 npx skills add https://github.com/thiago-f-santos/rufas-agentic-tooling
 ```
 

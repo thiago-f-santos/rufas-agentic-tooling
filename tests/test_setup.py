@@ -196,13 +196,36 @@ def test_install_runtime_skills_all(tmp_path, monkeypatch):
     fake_home = tmp_path / "fake_home"
     monkeypatch.setattr(Path, "home", lambda: fake_home)
 
-    results = install_runtime_skills(runtime="all")
+    results = install_runtime_skills(runtime="all", use_symlink=True)
     assert "universal" in results
     assert "claude" in results
     assert "antigravity" in results
-    assert (fake_home / ".agents" / "skills" / "rufas").exists()
-    assert (fake_home / ".claude" / "skills" / "rufas").exists()
-    assert (fake_home / ".gemini" / "antigravity-cli" / "skills" / "rufas").exists()
+    assert (fake_home / ".agents" / "skills" / "rufas").is_symlink()
+    assert (fake_home / ".claude" / "skills" / "rufas").is_symlink()
+    assert (fake_home / ".gemini" / "config" / "plugins" / "rufas-agentic-tooling").is_symlink()
+
+
+def test_install_runtime_skills_antigravity_plugin(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake_home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    results = install_runtime_skills(runtime="antigravity", use_symlink=True)
+    plugin_dest = fake_home / ".gemini" / "config" / "plugins" / "rufas-agentic-tooling"
+    assert plugin_dest.is_symlink()
+    assert plugin_dest.resolve() == PROJECT_ROOT.resolve()
+
+
+def test_install_runtime_skills_copy_mode(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake_home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    results = install_runtime_skills(runtime="all", use_symlink=False)
+    assert "universal" in results
+    assert "claude" in results
+    assert "antigravity" in results
+    assert (fake_home / ".agents" / "skills" / "rufas").is_dir()
+    assert not (fake_home / ".agents" / "skills" / "rufas").is_symlink()
+    assert (fake_home / ".gemini" / "config" / "plugins" / "rufas-agentic-tooling").is_dir()
+    assert not (fake_home / ".gemini" / "config" / "plugins" / "rufas-agentic-tooling").is_symlink()
 
 
 def test_install_runtime_skills_claude(tmp_path, monkeypatch):
@@ -214,6 +237,7 @@ def test_install_runtime_skills_claude(tmp_path, monkeypatch):
     assert "universal" not in results
     assert (fake_home / ".claude" / "skills" / "rufas").exists()
     assert not (fake_home / ".agents" / "skills").exists()
+
 
 
 # ==============================================================================
@@ -316,6 +340,18 @@ def test_main_cli_install_skills_arg(tmp_path, monkeypatch, capsys):
     assert "skills" in captured.out.lower()
 
 
+def test_main_cli_install_skills_mode_flag(tmp_path, monkeypatch, capsys):
+    fake_home = tmp_path / "fake_home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    exit_code = main(["--install-skills", "antigravity", "--mode", "symlink"])
+    assert exit_code == 0
+    plugin_dest = fake_home / ".gemini" / "config" / "plugins" / "rufas-agentic-tooling"
+    assert plugin_dest.is_symlink()
+    assert plugin_dest.resolve() == PROJECT_ROOT.resolve()
+
+
+
 def test_main_cli_interactive_flag(monkeypatch):
     mock_wizard = MagicMock(return_value=0)
     monkeypatch.setattr("tools.rufas_setup.interactive_wizard", mock_wizard)
@@ -407,7 +443,7 @@ def test_interactive_wizard_with_skills_installed(mock_rufas_repo, tmp_path, mon
     assert exit_code == 0
     assert (fake_home / ".agents" / "skills" / "rufas").exists()
     assert (fake_home / ".claude" / "skills" / "rufas").exists()
-    assert (fake_home / ".gemini" / "antigravity-cli" / "skills" / "rufas").exists()
+    assert (fake_home / ".gemini" / "config" / "plugins" / "rufas-agentic-tooling").exists()
     captured = capsys.readouterr()
     assert "RuFaS onboarding completed successfully" in captured.out
 
@@ -420,3 +456,4 @@ def test_interactive_wizard_quit(monkeypatch, capsys):
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Setup aborted" in captured.out
+
