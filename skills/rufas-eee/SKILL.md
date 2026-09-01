@@ -8,6 +8,9 @@ description: Use when analyzing, configuring, or debugging the RuFaS Economics, 
 ## 1. Overview & Module Scope
 The **RuFaS EEE Module** (`RUFAS/EEE/`) synthesizes whole-farm financial profitability, mobile machinery and stationary energy consumption, and lifecycle greenhouse gas (GHG) environmental footprints. Managed by `EEEManager` (which orchestrates `Economy`, `EnergyEstimator`, and `EmissionsEstimator`), it executes during simulation runtime (tracking daily purchased feed emissions) and during post-simulation processing (`_post_simulation_processing`), integrating time-series data from `HerdManager`, `FieldManager`, `FeedManager`, and `ManureManager` to generate farm sustainability and financial balance sheets.
 
+> [!IMPORTANT]
+> If RuFaS tools report that RuFaS is not configured, ask the user where their RuFaS project directory is located on their machine, or suggest running `rufas-setup` / setting `RUFAS_PATH`.
+
 ## 2. Capabilities & When to Use
 - **Triggering Conditions**:
   - Configuring economic parameters: milk component pricing (fat, protein, solids-not-fat), livestock cull/calf values, feed prices, labor wages, interest rates, and equipment depreciation.

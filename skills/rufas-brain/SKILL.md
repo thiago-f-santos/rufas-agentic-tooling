@@ -15,6 +15,9 @@ The **RuFaS Graph Memory Brain & Correlation Engine** (`tools/rufas_brain.py`) i
 
 This skill equips agents to perform graph traversal, parameter impact tracing, cross-run statistical inference, variable catalog lookups, and OpenCypher queries.
 
+> [!IMPORTANT]
+> If RuFaS tools report that RuFaS is not configured, ask the user where their RuFaS project directory is located on their machine, or suggest running `rufas-setup` / setting `RUFAS_PATH`.
+
 ---
 
 ## When to Use
@@ -29,8 +32,8 @@ This skill equips agents to perform graph traversal, parameter impact tracing, c
 - Exporting or updating an interactive Obsidian Markdown knowledge graph vault.
 
 ### When NOT to Use
-- Single-run execution without graph querying (use [`rufas`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas/SKILL.md)).
-- In-depth biophysical equation tuning within a single domain (delegate to [`rufas-animal`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal/SKILL.md), [`rufas-field`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field/SKILL.md), [`rufas-feed`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed/SKILL.md), [`rufas-manure`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure/SKILL.md), or [`rufas-eee`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee/SKILL.md)).
+- Single-run execution without graph querying (use [`rufas`](../rufas/SKILL.md)).
+- In-depth biophysical equation tuning within a single domain (delegate to [`rufas-animal`](../rufas-animal/SKILL.md), [`rufas-field`](../rufas-field/SKILL.md), [`rufas-feed`](../rufas-feed/SKILL.md), [`rufas-manure`](../rufas-manure/SKILL.md), or [`rufas-eee`](../rufas-eee/SKILL.md)).
 
 ---
 
@@ -187,11 +190,11 @@ Domain specialist skills should delegate cross-module inquiries, parameter impac
 
 | Specialist Skill | Graph Brain Query / Delegation Use Case | OpenCypher Pattern / CLI Command |
 |---|---|---|
-| [`rufas-animal`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-animal/SKILL.md) | Discover how dietary DMI and lactation curve changes affect manure solids and lagoon emissions. | `python -m tools.rufas_brain trace-impact --param lactation` |
-| [`rufas-field`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-field/SKILL.md) | Cross-reference fertilizer schedules against soil carbon pools, nitrate leaching, and $\text{N}_2\text{O}$ emissions. | `python -m tools.rufas_brain trace-impact --param fertilizer_schedule` |
-| [`rufas-feed`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-feed/SKILL.md) | Trace storage shrinkage and spoilage impacts on purchased feed expenses and Scope 3 emissions. | `python -m tools.rufas_brain trace-impact --param feed_storage_configurations` |
-| [`rufas-manure`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-manure/SKILL.md) | Correlate anaerobic digester efficiency and separator settings with whole-farm GHG footprint. | `python -m tools.rufas_brain trace-impact --param manure_management` |
-| [`rufas-eee`](file:///home/thiago/Projetos/rufas-agentic-tooling/skills/rufas-eee/SKILL.md) | Trace whole-farm carbon intensity ($kg\,\text{CO}_2e/kg\,\text{FPCM}$) drivers across animal, soil, and manure modules. | `MATCH (p)-[r:CORRELATES_WITH]->(v:OutputVariable) WHERE v.name CONTAINS 'carbon_intensity' RETURN p, r` |
+| [`rufas-animal`](../rufas-animal/SKILL.md) | Discover how dietary DMI and lactation curve changes affect manure solids and lagoon emissions. | `python -m tools.rufas_brain trace-impact --param lactation` |
+| [`rufas-field`](../rufas-field/SKILL.md) | Cross-reference fertilizer schedules against soil carbon pools, nitrate leaching, and $\text{N}_2\text{O}$ emissions. | `python -m tools.rufas_brain trace-impact --param fertilizer_schedule` |
+| [`rufas-feed`](../rufas-feed/SKILL.md) | Trace storage shrinkage and spoilage impacts on purchased feed expenses and Scope 3 emissions. | `python -m tools.rufas_brain trace-impact --param feed_storage_configurations` |
+| [`rufas-manure`](../rufas-manure/SKILL.md) | Correlate anaerobic digester efficiency and separator settings with whole-farm GHG footprint. | `python -m tools.rufas_brain trace-impact --param manure_management` |
+| [`rufas-eee`](../rufas-eee/SKILL.md) | Trace whole-farm carbon intensity ($kg\,\text{CO}_2e/kg\,\text{FPCM}$) drivers across animal, soil, and manure modules. | `MATCH (p)-[r:CORRELATES_WITH]->(v:OutputVariable) WHERE v.name CONTAINS 'carbon_intensity' RETURN p, r` |
 
 ---
 
