@@ -172,3 +172,77 @@ class TestInstallSkillsTool:
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT)
         assert result.returncode == 0
         assert (repo_dir / ".agents" / "skills" / "rufas" / "SKILL.md").exists()
+
+    def test_install_plugin_symlink(self, temp_env):
+        from tools.install_skills import install_plugin
+
+        plugins_dir = temp_env / "plugins"
+        success = install_plugin(REPO_ROOT, plugins_dir, use_symlink=True, dry_run=False)
+        assert success is True
+        dest = plugins_dir / "rufas-agentic-tooling"
+        assert dest.is_symlink()
+        assert dest.resolve() == REPO_ROOT.resolve()
+
+    def test_install_plugin_copy(self, temp_env):
+        from tools.install_skills import install_plugin
+
+        plugins_dir = temp_env / "plugins"
+        success = install_plugin(REPO_ROOT, plugins_dir, use_symlink=False, dry_run=False)
+        assert success is True
+        dest = plugins_dir / "rufas-agentic-tooling"
+        assert dest.is_dir()
+        assert not dest.is_symlink()
+        assert (dest / "plugin.json").is_file()
+
+    def test_install_plugin_dry_run(self, temp_env):
+        from tools.install_skills import install_plugin
+
+        plugins_dir = temp_env / "plugins"
+        success = install_plugin(REPO_ROOT, plugins_dir, use_symlink=True, dry_run=True)
+        assert success is True
+        assert not (plugins_dir / "rufas-agentic-tooling").exists()
+
+    def test_install_plugin_idempotent_replace(self, temp_env):
+        from tools.install_skills import install_plugin
+
+        plugins_dir = temp_env / "plugins"
+        dest = plugins_dir / "rufas-agentic-tooling"
+        # First install as copy
+        install_plugin(REPO_ROOT, plugins_dir, use_symlink=False, dry_run=False)
+        assert dest.is_dir() and not dest.is_symlink()
+        # Re-install as symlink (must replace safely)
+        install_plugin(REPO_ROOT, plugins_dir, use_symlink=True, dry_run=False)
+        assert dest.is_symlink()
+        assert dest.resolve() == REPO_ROOT.resolve()
+
+    def test_install_skills_symlink_mode(self, temp_env):
+        from tools.install_skills import SKILLS, install_skills
+
+        skills_source = REPO_ROOT / "skills"
+        target_dir = temp_env / "symlink_skills"
+
+        count = install_skills(skills_source, target_dir, use_symlink=True, dry_run=False)
+        assert count == len(SKILLS)
+
+        for skill in SKILLS:
+            installed_skill = target_dir / skill
+            assert installed_skill.is_symlink()
+            assert installed_skill.resolve() == (skills_source / skill).resolve()
+
+    def test_cli_mode_flag_symlink(self, temp_env):
+        installer_script = REPO_ROOT / "tools" / "install_skills.py"
+        custom_dest = temp_env / "custom_symlink"
+        cmd = [
+            sys.executable,
+            str(installer_script),
+            "--runtime",
+            "custom",
+            "--custom-path",
+            str(custom_dest),
+            "--mode",
+            "symlink",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT)
+        assert result.returncode == 0
+        assert (custom_dest / "rufas").is_symlink()
+
