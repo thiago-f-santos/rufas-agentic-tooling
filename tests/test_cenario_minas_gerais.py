@@ -129,7 +129,31 @@ class TestCenarioMinasGerais(unittest.TestCase):
         self.assertEqual(field.get("simulate_phosphorus_stress"), True)
         self.assertEqual(field.get("tractor_size"), "medium")
 
+    def test_scenario_metadata_validation(self):
+        from tools.rufas_inspector import inspect_scenario_metadata
+
+        scenario_meta = self.rufas_root / "input" / "metadata" / "cenario_minas_gerais_metadata.json"
+        self.assertTrue(scenario_meta.exists(), f"Missing {scenario_meta}")
+
+        valid, errors, warnings = inspect_scenario_metadata(scenario_meta, self.rufas_root)
+        self.assertTrue(valid, f"Scenario validation failed: {errors}")
+        self.assertEqual(len(errors), 0)
+
+    def test_task_manager_validation(self):
+        from tools.rufas_inspector import inspect_task_metadata
+
+        tm_meta = self.rufas_root / "input" / "task_manager_minas_gerais_metadata.json"
+        self.assertTrue(tm_meta.exists(), f"Missing {tm_meta}")
+
+        task_path = self.rufas_root / "input" / "data" / "tasks" / "task_minas_gerais.json"
+        self.assertTrue(task_path.exists(), f"Missing {task_path}")
+
+        valid_tm, tm_errors, tm_warnings = inspect_task_metadata(tm_meta, self.rufas_root)
+        self.assertTrue(valid_tm, f"Task manager validation failed: {tm_errors}")
+        self.assertEqual(len(tm_errors), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
