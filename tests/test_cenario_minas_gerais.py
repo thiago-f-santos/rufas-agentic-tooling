@@ -105,6 +105,31 @@ class TestCenarioMinasGerais(unittest.TestCase):
         p_values = [layer["initial_labile_inorganic_phosphorus_concentration"] for layer in layers]
         self.assertEqual(p_values, sorted(p_values, reverse=True))
 
+    def test_field_minas_gerais(self):
+        field_path = self.rufas_root / "input" / "data" / "field" / "field_minas_gerais.json"
+        self.assertTrue(field_path.exists(), f"Missing {field_path}")
+        with open(field_path, "r", encoding="utf-8") as f:
+            field = json.load(f)
+
+        self.assertEqual(field.get("soil_specification"), "soil_minas_gerais")
+        self.assertEqual(field.get("crop_specification"), "Corn-Silage-MG")
+        self.assertEqual(field.get("fertilizer_management_specification"), "fertilizer_schedule_minas_gerais")
+        self.assertEqual(field.get("manure_management_specification"), "manure_schedule_minas_gerais")
+        self.assertEqual(field.get("tillage_management_specification"), "tillage_schedule_minas_gerais")
+        self.assertEqual(field.get("field_size"), 20.0)
+        self.assertEqual(field.get("latitude"), -18.5789)
+        self.assertEqual(field.get("longitude"), -46.5181)
+        self.assertEqual(field.get("minimum_daylength"), 10.8)
+        self.assertEqual(field.get("seasonal_high_water_table"), False)
+        self.assertEqual(field.get("watering_amount_in_liters"), 0.0)
+        self.assertEqual(field.get("watering_interval"), 0)
+        self.assertEqual(field.get("simulate_water_stress"), True)
+        self.assertEqual(field.get("simulate_temp_stress"), True)
+        self.assertEqual(field.get("simulate_nitrogen_stress"), True)
+        self.assertEqual(field.get("simulate_phosphorus_stress"), True)
+        self.assertEqual(field.get("tractor_size"), "medium")
+
 
 if __name__ == "__main__":
     unittest.main()
+
