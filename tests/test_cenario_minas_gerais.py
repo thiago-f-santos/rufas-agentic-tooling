@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -8,6 +11,7 @@ from tools.config import get_rufas_root
 class TestCenarioMinasGerais(unittest.TestCase):
     def setUp(self):
         self.rufas_root = get_rufas_root()
+        self.project_root = Path(__file__).resolve().parent.parent
 
     def test_config_minas_gerais(self):
         config_path = self.rufas_root / "input" / "data" / "config" / "config_minas_gerais.json"
@@ -151,6 +155,54 @@ class TestCenarioMinasGerais(unittest.TestCase):
         valid_tm, tm_errors, tm_warnings = inspect_task_metadata(tm_meta, self.rufas_root)
         self.assertTrue(valid_tm, f"Task manager validation failed: {tm_errors}")
         self.assertEqual(len(tm_errors), 0)
+
+    def test_cli_inspector_scenario(self):
+        scenario_arg = "../RuFaS/input/metadata/cenario_minas_gerais_metadata.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "tools.rufas_inspector",
+            "--scenario",
+            scenario_arg,
+        ]
+        env = {**os.environ, "PYTHONPATH": str(self.project_root)}
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=self.project_root,
+            env=env,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"rufas_inspector CLI scenario invocation failed (code {result.returncode}):\n{result.stderr}\n{result.stdout}",
+        )
+        self.assertIn("PASSED", result.stdout)
+
+    def test_cli_inspector_task_metadata(self):
+        task_meta_arg = "../RuFaS/input/task_manager_minas_gerais_metadata.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "tools.rufas_inspector",
+            "--task-metadata",
+            task_meta_arg,
+        ]
+        env = {**os.environ, "PYTHONPATH": str(self.project_root)}
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=self.project_root,
+            env=env,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"rufas_inspector CLI task metadata invocation failed (code {result.returncode}):\n{result.stderr}\n{result.stdout}",
+        )
+        self.assertIn("PASSED", result.stdout)
 
 
 if __name__ == "__main__":
