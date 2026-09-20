@@ -7,6 +7,7 @@ executes the model, and captures structured error diagnostics.
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,27 @@ from tools.config import (
     assert_within_rufas_scope,
     get_rufas_root,
 )
+
+
+def find_python_interpreter(rufas_root: Path) -> str:
+    """Find the best python interpreter with RuFaS dependencies."""
+    try:
+        import numpy  # noqa: F401
+        return sys.executable
+    except ImportError:
+        pass
+
+    project_root = Path(__file__).resolve().parent.parent
+    candidates = [
+        project_root / "venv" / "bin" / "python",
+        project_root / ".venv" / "bin" / "python",
+        rufas_root / "venv" / "bin" / "python",
+        rufas_root / ".venv" / "bin" / "python",
+    ]
+    for cand in candidates:
+        if cand.exists() and os.access(cand, os.X_OK):
+            return str(cand)
+    return sys.executable
 
 
 def setup_csv_filters(rufas_root: Path, enable_all: bool = True) -> None:
@@ -35,7 +57,7 @@ def setup_csv_filters(rufas_root: Path, enable_all: bool = True) -> None:
 
     if enable_all and inactive_filter.exists() and not active_filter.exists():
         print("⚡ Activating csv_all_variables.txt filter for full variable export...")
-        inactive_filter.rename(active_filter)
+        shutil.copy2(inactive_filter, active_filter)
 
 
 def run_rufas_simulation(
@@ -47,8 +69,9 @@ def run_rufas_simulation(
     clear_output: bool = False,
     extra_args: Optional[List[str]] = None,
 ) -> int:
+    python_bin = find_python_interpreter(rufas_root)
     cmd = [
-        sys.executable,
+        python_bin,
         "-m",
         "RUFAS.main",
         "-o",
@@ -65,8 +88,12 @@ def run_rufas_simulation(
     if extra_args:
         cmd.extend(extra_args)
 
+    env = os.environ.copy()
+    if no_graphics:
+        env["MPLBACKEND"] = "Agg"
+
     print(f"🚀 Executing RuFaS simulation command in {rufas_root}:\n  {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=str(rufas_root), capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=str(rufas_root), capture_output=True, text=True, env=env)
 
     if result.stdout:
         print("--- Simulation Output ---")
