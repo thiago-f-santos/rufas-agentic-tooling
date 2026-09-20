@@ -204,8 +204,109 @@ class TestCenarioMinasGerais(unittest.TestCase):
         )
         self.assertIn("PASSED", result.stdout)
 
+    def test_simulation_execution_and_biophysical_outputs(self):
+        """
+        Verifies end-to-end simulation execution for the Minas Gerais pilot scenario,
+        including 730 simulated days, zero errors, Southern Hemisphere photoperiod
+        seasonality, and hydraulic stability of the Latossolo Vermelho soil profile.
+        """
+        csv_dir = self.rufas_root / "output" / "CSVs"
+        csv_files = sorted(csv_dir.glob("Minas_Gerais_Pilot_saved_variables_csv_all_variables*.csv"))
+
+        if not csv_files:
+            from tools.rufas_runner import run_rufas_simulation
+
+            exit_code = run_rufas_simulation(
+                rufas_root=self.rufas_root,
+                metadata_path="input/task_manager_minas_gerais_metadata.json",
+                output_dir="output/",
+                verbosity="warnings",
+                no_graphics=True,
+            )
+            self.assertEqual(exit_code, 0, "Simulation failed during test execution")
+            csv_files = sorted(csv_dir.glob("Minas_Gerais_Pilot_saved_variables_csv_all_variables*.csv"))
+
+        self.assertTrue(len(csv_files) > 0, "Output CSV not found in output/CSVs")
+        latest_csv = csv_files[-1]
+
+        # 1. Verify Error Logs
+        errors_txt = self.rufas_root / "output" / "logs" / "errors.txt"
+        if errors_txt.exists():
+            self.assertEqual(errors_txt.stat().st_size, 0, f"errors.txt is not empty: {errors_txt.read_text()}")
+
+        error_jsons = sorted(self.rufas_root.glob("output/logs/Minas_Gerais_Pilot_errors_*.json"))
+        if error_jsons:
+            with open(error_jsons[-1], "r", encoding="utf-8") as f:
+                err_data = json.load(f)
+            err_keys = [k for k in err_data.keys() if k != "DISCLAIMER"]
+            self.assertEqual(len(err_keys), 0, f"Errors found in simulation logs: {err_keys}")
+
+        # 2. Verify Output Variables
+        import pandas as pd
+
+        daylength_col = "FieldManager.daily_update_routine.daylength.field='field_1' (hour)"
+        w_cols = [
+            f"FieldDataReporter.send_soil_layer_daily_variables.water_content.field='field_1',layer='{i}' (mm)"
+            for i in range(4)
+        ]
+        cols_to_load = [daylength_col] + w_cols
+
+        df = pd.read_csv(latest_csv, usecols=cols_to_load).dropna().reset_index(drop=True)
+        self.assertEqual(len(df), 730, f"Expected 730 simulation days across 2021-2022, got {len(df)}")
+
+        # 3. Verify Southern Hemisphere Photoperiod Seasonality (Patos de Minas: lat -18.5789)
+        daylengths = df[daylength_col]
+        min_dl = daylengths.min()
+        max_dl = daylengths.max()
+
+        self.assertGreater(max_dl, 13.0, f"Max day length should exceed 13.0h in Dec/Jan, got {max_dl}")
+        self.assertLess(max_dl, 13.3, f"Max day length should be <= 13.3h, got {max_dl}")
+        self.assertGreaterEqual(min_dl, 10.7, f"Min day length should be >= 10.7h, got {min_dl}")
+        self.assertLessEqual(min_dl, 11.0, f"Min day length should be ~10.8h in Jun/Jul, got {min_dl}")
+
+        # Seasonal alignment: Dec/Jan (summer) > Jun/Jul (winter)
+        dates = pd.date_range("2021-01-01", periods=730)
+        df["month"] = dates.month
+        summer_dl = df[df["month"].isin([12, 1])][daylength_col].mean()
+        winter_dl = df[df["month"].isin([6, 7])][daylength_col].mean()
+        self.assertGreater(
+            summer_dl,
+            winter_dl + 1.5,
+            f"Southern Hemisphere summer day length ({summer_dl:.2f}h) must exceed winter ({winter_dl:.2f}h) by > 1.5h",
+        )
+
+        # 4. Verify Soil Water Balance Stability in Latossolo Profile
+        soil_path = self.rufas_root / "input" / "data" / "soil" / "soil_minas_gerais.json"
+        with open(soil_path, "r", encoding="utf-8") as f:
+            soil_cfg = json.load(f)
+        layers = soil_cfg["soil_layers"]
+        thicknesses = [
+            layers[0]["bottom_depth"],
+            layers[1]["bottom_depth"] - layers[0]["bottom_depth"],
+            layers[2]["bottom_depth"] - layers[1]["bottom_depth"],
+            layers[3]["bottom_depth"] - layers[2]["bottom_depth"],
+        ]
+
+        eps = 1e-4
+        for i in range(4):
+            thick = thicknesses[i]
+            wp = layers[i]["wilting_point_water_concentration"]
+            sat = layers[i]["saturation_point_water_concentration"]
+            theta = df[w_cols[i]] / thick
+
+            self.assertFalse(theta.isna().any(), f"Layer {i} contains NaN water content")
+            self.assertTrue(
+                (theta >= wp - eps).all(),
+                f"Layer {i} water content dropped below wilting point ({wp}): min {theta.min()}",
+            )
+            self.assertTrue(
+                (theta <= sat + eps).all(),
+                f"Layer {i} water content exceeded saturation ({sat}): max {theta.max()}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
