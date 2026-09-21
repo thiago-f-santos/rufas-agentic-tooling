@@ -28,7 +28,7 @@ PRIORITY_FEED_FACTORS: Dict[str, tuple[float, float]] = {
     "302": (0.35, 0.10),   # Farm ES BP Blend (By-product blend: citrus pulp, wheat midds, corn)
 }
 
-REGIONS_TO_REGISTER: List[int] = [31, 3148004]
+REGIONS_TO_REGISTER: List[int] = [3148004]
 
 
 def get_base_feed_columns(rufas_root: Path) -> List[str]:
@@ -36,13 +36,13 @@ def get_base_feed_columns(rufas_root: Path) -> List[str]:
     base_file = rufas_root / "input" / "data" / "EEE" / "full_feeds_emissions_July2024_interpolated_regional_average.csv"
     if not base_file.exists():
         # Fallback to priority feed columns if base file not found
-        return ["region_code"] + list(PRIORITY_FEED_FACTORS.keys())
+        return ["county_code"] + list(PRIORITY_FEED_FACTORS.keys())
 
     with open(base_file, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
-    # Ensure region_code is the first column and priority feeds are present
-    cols = ["region_code"] + [col for col in header if col not in ("county_code", "region_code")]
+    # Ensure county_code is the first column and priority feeds are present
+    cols = ["county_code"] + [col for col in header if col not in ("county_code", "region_code")]
     for fid in PRIORITY_FEED_FACTORS.keys():
         if fid not in cols:
             cols.append(fid)
@@ -59,7 +59,7 @@ def build_minas_gerais_eee_datasets(output_dir: Path, rufas_root: Optional[Path]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     all_columns = get_base_feed_columns(rufas_root)
-    feed_columns = [col for col in all_columns if col != "region_code"]
+    feed_columns = [col for col in all_columns if col != "county_code"]
 
     created_files: Dict[str, Path] = {}
 
@@ -69,7 +69,7 @@ def build_minas_gerais_eee_datasets(output_dir: Path, rufas_root: Optional[Path]
         writer = csv.DictWriter(f, fieldnames=all_columns)
         writer.writeheader()
         for reg in REGIONS_TO_REGISTER:
-            row: Dict[str, str | float] = {"region_code": reg}
+            row: Dict[str, str | float] = {"county_code": reg}
             for fid in feed_columns:
                 prod_val = PRIORITY_FEED_FACTORS.get(str(fid), (0.0, 0.0))[0]
                 row[fid] = prod_val
@@ -82,7 +82,7 @@ def build_minas_gerais_eee_datasets(output_dir: Path, rufas_root: Optional[Path]
         writer = csv.DictWriter(f, fieldnames=all_columns)
         writer.writeheader()
         for reg in REGIONS_TO_REGISTER:
-            row = {"region_code": reg}
+            row = {"county_code": reg}
             for fid in feed_columns:
                 luc_val = PRIORITY_FEED_FACTORS.get(str(fid), (0.0, 0.0))[1]
                 row[fid] = luc_val
