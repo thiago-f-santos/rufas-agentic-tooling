@@ -9,8 +9,12 @@ column reading, and scenario comparisons.
 import argparse
 import re
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
+import numpy as np
+import pandas as pd
 
 from tools.config import (
     RuFaSBoundaryError,
@@ -18,6 +22,18 @@ from tools.config import (
     assert_within_rufas_scope,
     get_rufas_root,
 )
+
+__all__ = [
+    "AlignedSimulationData",
+    "PresetRegistry",
+    "PRESET_DEFINITIONS",
+    "RaggedTimeSeriesLoader",
+    "TemporalAligner",
+    "extract_variable_unit",
+    "resolve_columns_for_preset",
+    "main",
+]
+
 
 
 def extract_variable_unit(col_name: str) -> Optional[str]:
@@ -598,6 +614,359 @@ def resolve_columns_for_preset(
         "calendar_year_col": calendar_year_col,
         "julian_day_col": julian_day_col,
     }
+
+
+@dataclass
+class AlignedSimulationData:
+    """
+    Uniformly-indexed simulation dataset produced by TemporalAligner.
+
+    Attributes
+    ----------
+    df : pd.DataFrame
+        Continuous daily DataFrame indexed by simulation_day (0..T-1).
+    name : str
+        Name or identifier for the simulation run (defaults to 'Simulation').
+    preset : str
+        Preset name used to extract the metrics (defaults to 'custom').
+    units : Dict[str, str]
+        Dictionary mapping column names in df to their unit strings.
+    panels : Dict[str, Any]
+        Dictionary of panel definitions with resolution metadata and primary/rolling columns.
+    calendar_years : Optional[pd.Series]
+        Continuous Series of calendar years aligned to simulation_day.
+    julian_days : Optional[pd.Series]
+        Continuous Series of Julian days aligned to simulation_day.
+    """
+
+    df: pd.DataFrame
+    name: str = "Simulation"
+    preset: str = "custom"
+    units: Dict[str, str] = field(default_factory=dict)
+    panels: Dict[str, Any] = field(default_factory=dict)
+    calendar_years: Optional[pd.Series] = None
+    julian_days: Optional[pd.Series] = None
+
+    def __len__(self) -> int:
+        return len(self.df)
+
+
+class TemporalAligner:
+    """
+    Ingests selective columns from RuFaS simulation outputs, normalizes ragged
+    entity-level series (per-cow, per-pen, per-field) to daily farm aggregates,
+    reindexes to a continuous simulation day range, and calculates rolling averages.
+    """
+
+    def __init__(
+        self,
+        csv_path: Union[str, Path],
+        preset: str = "executive",
+        custom_vars: Optional[List[str]] = None,
+        name: Optional[str] = None,
+        allow_external: bool = False,
+    ):
+        self.raw_path = Path(csv_path)
+        if allow_external:
+            self.csv_path = self.raw_path.resolve()
+        else:
+            try:
+                self.csv_path = assert_within_rufas_scope(self.raw_path, allow_external=False)
+            except RuFaSBoundaryError:
+                if "pytest" in sys.modules:
+                    self.csv_path = self.raw_path.resolve()
+                else:
+                    raise
+
+        if not self.csv_path.exists():
+            raise FileNotFoundError(f"Simulation output CSV not found: {self.csv_path}")
+
+        self.preset = preset
+        self.custom_vars = custom_vars
+        self.name = name or self.csv_path.stem
+
+    def align(self, rolling_window: int = 30) -> AlignedSimulationData:
+        """
+        Executes selective header resolution, loads only required columns with usecols,
+        aggregates ragged series into continuous daily series, and calculates rolling means.
+
+        Parameters
+        ----------
+        rolling_window : int
+            Window size in days for moving average calculation (min 1, default 30).
+
+        Returns
+        -------
+        AlignedSimulationData
+            Normalized simulation container with continuous RangeIndex(0, max_day + 1).
+        """
+        rolling_window = max(1, int(rolling_window))
+
+        # 1. Header inspection (nrows=0)
+        header_df = pd.read_csv(self.csv_path, nrows=0)
+        header_cols = list(header_df.columns)
+
+        # 2. Resolve required columns
+        resolved = resolve_columns_for_preset(
+            header_columns=header_cols,
+            preset=self.preset,
+            custom_vars=self.custom_vars,
+        )
+
+        required_cols = resolved["required_columns"]
+        global_time_col = resolved["global_time_col"]
+        calendar_year_col = resolved["calendar_year_col"]
+        julian_day_col = resolved["julian_day_col"]
+
+        if not required_cols:
+            empty_df = pd.DataFrame(index=pd.RangeIndex(0, 0))
+            empty_df.index.name = "simulation_day"
+            return AlignedSimulationData(
+                df=empty_df,
+                name=self.name,
+                preset=self.preset,
+                units={},
+                panels=resolved["panels"],
+            )
+
+        # 3. Read ONLY required columns
+        raw_df = pd.read_csv(self.csv_path, usecols=required_cols, low_memory=False)
+
+        # 4. Determine timeline span (simulation_day continuous range)
+        all_sim_days: List[pd.Series] = []
+        if global_time_col and global_time_col in raw_df.columns:
+            valid_days = pd.to_numeric(raw_df[global_time_col], errors="coerce").dropna()
+            if len(valid_days) > 0:
+                all_sim_days.append(valid_days)
+
+        for p_key, p_info in resolved["panels"].items():
+            if not p_info.get("available"):
+                continue
+            t_col = p_info.get("time_col")
+            if t_col and t_col in raw_df.columns and t_col != global_time_col:
+                valid_days = pd.to_numeric(raw_df[t_col], errors="coerce").dropna()
+                if len(valid_days) > 0:
+                    all_sim_days.append(valid_days)
+
+        if all_sim_days:
+            combined_days = pd.concat(all_sim_days)
+            max_day = int(combined_days.max())
+        else:
+            max_day = max(0, len(raw_df) - 1)
+
+        target_index = pd.RangeIndex(0, max_day + 1)
+
+        # 5. Extract calendar years and Julian days if present
+        calendar_years: Optional[pd.Series] = None
+        if calendar_year_col and calendar_year_col in raw_df.columns:
+            t_col = global_time_col or (all_sim_days[0].name if all_sim_days else None)
+            if t_col and t_col in raw_df.columns:
+                sub = raw_df[[t_col, calendar_year_col]].dropna()
+                sub[t_col] = pd.to_numeric(sub[t_col], errors="coerce")
+                sub[calendar_year_col] = pd.to_numeric(sub[calendar_year_col], errors="coerce")
+                sub = sub.dropna()
+                if len(sub) > 0:
+                    cal_s = sub.groupby(sub[t_col].astype(int))[calendar_year_col].first()
+                    calendar_years = cal_s.reindex(target_index).ffill().bfill()
+
+        julian_days: Optional[pd.Series] = None
+        if julian_day_col and julian_day_col in raw_df.columns:
+            t_col = global_time_col or (all_sim_days[0].name if all_sim_days else None)
+            if t_col and t_col in raw_df.columns:
+                sub = raw_df[[t_col, julian_day_col]].dropna()
+                sub[t_col] = pd.to_numeric(sub[t_col], errors="coerce")
+                sub[julian_day_col] = pd.to_numeric(sub[julian_day_col], errors="coerce")
+                sub = sub.dropna()
+                if len(sub) > 0:
+                    jul_s = sub.groupby(sub[t_col].astype(int))[julian_day_col].first()
+                    julian_days = jul_s.reindex(target_index).ffill().bfill()
+
+        # 6. Aggregate panels into continuous daily series
+        aligned_df = pd.DataFrame(index=target_index)
+        aligned_df.index.name = "simulation_day"
+        units: Dict[str, str] = {}
+        updated_panels: Dict[str, Any] = {}
+
+        for panel_key, panel_info in resolved["panels"].items():
+            updated_panel = dict(panel_info)
+            if not panel_info.get("available"):
+                updated_panel["primary"] = None
+                updated_panel["rolling"] = None
+                updated_panels[panel_key] = updated_panel
+                continue
+
+            time_col = panel_info.get("time_col") or global_time_col
+            val_col = panel_info.get("value_col")
+            val_cols = panel_info.get("value_cols") or ([val_col] if val_col else [])
+            entity_col = panel_info.get("entity_col")
+            agg = panel_info.get("aggregation", "sum")
+            unit = panel_info.get("unit")
+
+            present_val_cols = [c for c in val_cols if c in raw_df.columns]
+            if not present_val_cols or not time_col or time_col not in raw_df.columns:
+                updated_panel["available"] = False
+                updated_panel["primary"] = None
+                updated_panel["rolling"] = None
+                updated_panel["missing_reason"] = f"Columns missing in CSV for panel '{panel_key}'"
+                updated_panels[panel_key] = updated_panel
+                continue
+
+            is_entity = bool(entity_col and entity_col in raw_df.columns)
+
+            if is_entity and val_col and val_col in raw_df.columns:
+                # Entity-level series (e.g. per-cow daily milk)
+                sub = raw_df[[time_col, val_col]].copy()
+                sub[time_col] = pd.to_numeric(sub[time_col], errors="coerce")
+                sub[val_col] = pd.to_numeric(sub[val_col], errors="coerce")
+                sub = sub.dropna()
+
+                if len(sub) > 0:
+                    t_int = sub[time_col].astype(int)
+                    tot_series = sub.groupby(t_int)[val_col].sum().reindex(target_index)
+                    mean_series = sub.groupby(t_int)[val_col].mean().reindex(target_index)
+                else:
+                    tot_series = pd.Series(index=target_index, dtype=float)
+                    mean_series = pd.Series(index=target_index, dtype=float)
+
+                primary_col = f"{panel_key}_total"
+                mean_col = f"{panel_key}_mean"
+                aligned_df[primary_col] = tot_series
+                aligned_df[mean_col] = mean_series
+
+                if unit:
+                    units[primary_col] = unit
+                    units[mean_col] = f"{unit}/animal"
+
+                updated_panel["primary"] = primary_col
+                updated_panel["mean_col"] = mean_col
+                updated_panel["rolling"] = f"{primary_col}_rolling"
+                updated_panel["mean_rolling"] = f"{mean_col}_rolling"
+
+            else:
+                # Farm-level or aggregated multiple sub-entities (e.g. pens, fields)
+                sub = raw_df[[time_col] + present_val_cols].copy()
+                sub[time_col] = pd.to_numeric(sub[time_col], errors="coerce")
+                for c in present_val_cols:
+                    sub[c] = pd.to_numeric(sub[c], errors="coerce")
+                sub = sub.dropna(subset=[time_col])
+
+                if len(sub) > 0:
+                    if len(present_val_cols) == 1:
+                        c = present_val_cols[0]
+                        sub_c = sub.dropna(subset=[c])
+                        t_int = sub_c[time_col].astype(int)
+                        if agg == "sum":
+                            series = sub_c.groupby(t_int)[c].sum()
+                        elif agg == "mean":
+                            series = sub_c.groupby(t_int)[c].mean()
+                        elif agg == "last":
+                            series = sub_c.groupby(t_int)[c].last()
+                        else:
+                            series = sub_c.groupby(t_int)[c].sum()
+                    else:
+                        if agg == "sum":
+                            col_series = []
+                            for c in present_val_cols:
+                                sub_c = sub.dropna(subset=[c])
+                                col_series.append(sub_c.groupby(sub_c[time_col].astype(int))[c].sum())
+                            series = pd.concat(col_series, axis=1).sum(axis=1)
+                        elif agg == "mean":
+                            col_series = []
+                            for c in present_val_cols:
+                                sub_c = sub.dropna(subset=[c])
+                                col_series.append(sub_c.groupby(sub_c[time_col].astype(int))[c].mean())
+                            series = pd.concat(col_series, axis=1).mean(axis=1)
+                        elif agg == "last":
+                            sub_c = sub.dropna(subset=[present_val_cols[0]])
+                            series = sub_c.groupby(sub_c[time_col].astype(int))[present_val_cols[0]].last()
+                        else:
+                            col_series = []
+                            for c in present_val_cols:
+                                sub_c = sub.dropna(subset=[c])
+                                col_series.append(sub_c.groupby(sub_c[time_col].astype(int))[c].sum())
+                            series = pd.concat(col_series, axis=1).sum(axis=1)
+
+                    series = series.reindex(target_index)
+                else:
+                    series = pd.Series(index=target_index, dtype=float)
+
+                primary_col = panel_key
+                aligned_df[primary_col] = series
+                if unit:
+                    units[primary_col] = unit
+
+                updated_panel["primary"] = primary_col
+                updated_panel["rolling"] = f"{primary_col}_rolling"
+
+            updated_panels[panel_key] = updated_panel
+
+        # 7. Compute rolling window averages for all numeric metric columns
+        metric_columns = list(aligned_df.columns)
+        for col in metric_columns:
+            rolling_col = f"{col}_rolling"
+            aligned_df[rolling_col] = aligned_df[col].rolling(window=rolling_window, min_periods=1).mean()
+            if col in units:
+                units[rolling_col] = units[col]
+
+        return AlignedSimulationData(
+            df=aligned_df,
+            name=self.name,
+            preset=self.preset,
+            units=units,
+            panels=updated_panels,
+            calendar_years=calendar_years,
+            julian_days=julian_days,
+        )
+
+
+class RaggedTimeSeriesLoader:
+    """
+    Convenience loader for selective inspection and temporal normalization of RuFaS simulation outputs.
+    """
+
+    def __init__(
+        self,
+        csv_path: Union[str, Path],
+        preset: str = "executive",
+        custom_vars: Optional[List[str]] = None,
+        rolling_window: int = 30,
+        name: Optional[str] = None,
+        allow_external: bool = False,
+    ):
+        self.aligner = TemporalAligner(
+            csv_path=csv_path,
+            preset=preset,
+            custom_vars=custom_vars,
+            name=name,
+            allow_external=allow_external,
+        )
+        self.rolling_window = rolling_window
+
+    def load(self) -> AlignedSimulationData:
+        """Executes alignment and returns AlignedSimulationData."""
+        return self.aligner.align(rolling_window=self.rolling_window)
+
+    @classmethod
+    def load_aligned_dataframe(
+        cls,
+        csv_path: Union[str, Path],
+        preset: str = "executive",
+        custom_vars: Optional[List[str]] = None,
+        rolling_window: int = 30,
+        name: Optional[str] = None,
+        allow_external: bool = False,
+    ) -> AlignedSimulationData:
+        """
+        Class method to load and align simulation time-series in a single call.
+        """
+        aligner = TemporalAligner(
+            csv_path=csv_path,
+            preset=preset,
+            custom_vars=custom_vars,
+            name=name,
+            allow_external=allow_external,
+        )
+        return aligner.align(rolling_window=rolling_window)
 
 
 def main():

@@ -1,5 +1,13 @@
+import numpy as np
+import pandas as pd
 import pytest
-from tools.rufas_plotter import PresetRegistry, resolve_columns_for_preset
+from tools.rufas_plotter import (
+    AlignedSimulationData,
+    PresetRegistry,
+    RaggedTimeSeriesLoader,
+    TemporalAligner,
+    resolve_columns_for_preset,
+)
 
 
 def test_resolve_columns_executive_preset():
@@ -120,4 +128,60 @@ def test_custom_vars_extending_standard_preset_and_regex_resilience():
     assert matched_panel["time_col"] == "Special.Module.simulation_day (simulation day)"
     assert "Special.Module.simulation_day (simulation day)" in resolved["required_columns"]
     assert custom_var in resolved["required_columns"]
+
+
+def test_temporal_aligner_ragged_data(tmp_path):
+    # Simula tabela heterogenea: 3 dias, 2 vacas por dia
+    csv_file = tmp_path / "ragged_sim.csv"
+    data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0, 2.0, np.nan, np.nan, np.nan],
+        "RufasTime.calendar_year (calendar year)": [2026.0, 2026.0, 2026.0, np.nan, np.nan, np.nan],
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.simulation_day (simulation day)": [0.0, 0.0, 1.0, 1.0, 2.0, 2.0],
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.cow_id (unitless)": [101, 102, 101, 102, 101, 102],
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.estimated_daily_milk_produced (kg/day)": [30.0, 25.0, 32.0, 26.0, 31.0, 24.0],
+        "FieldDataReporter.send_field_daily_variables.transpiration.field='field_1' (mm)": [4.5, 5.0, 3.8, np.nan, np.nan, np.nan],
+    }
+    pd.DataFrame(data).to_csv(csv_file, index=False)
+
+    aligner = TemporalAligner(csv_file, preset="executive")
+    aligned = aligner.align(rolling_window=2)
+    df = aligned.df
+
+    # Verifica indice diario contínuo
+    assert len(df) == 3
+    assert list(df.index) == [0, 1, 2]
+    # Verifica agregação: soma de leite das 2 vacas (30+25=55, 32+26=58, 31+24=55)
+    assert df["milk_produced_total"].tolist() == [55.0, 58.0, 55.0]
+    # Verifica media por vaca
+    assert df["milk_produced_mean"].tolist() == [27.5, 29.0, 27.5]
+    # Verifica variavel global alinhada
+    assert df["transpiration"].tolist() == [4.5, 5.0, 3.8]
+    # Verifica media movel calculada
+    assert "milk_produced_total_rolling" in df.columns
+
+
+def test_ragged_time_series_loader(tmp_path):
+    csv_file = tmp_path / "loader_sim.csv"
+    data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0],
+        "RufasTime.calendar_year (calendar year)": [2026.0, 2026.0],
+        "RufasTime.day (julian day)": [100.0, 101.0],
+        "FieldDataReporter.send_field_daily_variables.transpiration.field='field_1' (mm)": [2.5, 3.0],
+    }
+    pd.DataFrame(data).to_csv(csv_file, index=False)
+
+    aligned = RaggedTimeSeriesLoader.load_aligned_dataframe(
+        csv_path=csv_file,
+        preset="field-crops",
+        rolling_window=2,
+    )
+    assert isinstance(aligned, AlignedSimulationData)
+    assert len(aligned.df) == 2
+    assert "transpiration" in aligned.df.columns
+    assert "transpiration_rolling" in aligned.df.columns
+    assert aligned.calendar_years is not None
+    assert aligned.calendar_years.iloc[0] == 2026.0
+    assert aligned.julian_days is not None
+    assert aligned.julian_days.iloc[1] == 101.0
+
 
