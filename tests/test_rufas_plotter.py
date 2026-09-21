@@ -12,9 +12,13 @@ from tools.rufas_plotter import (
     ScenarioComparisonResult,
     ScenarioDelta,
     TemporalAligner,
+    generate_plots,
+    main,
     resolve_columns_for_preset,
 )
 from PIL import Image
+from pathlib import Path
+
 
 
 
@@ -791,6 +795,192 @@ def test_plotly_renderer_julian_days_without_calendar_years(tmp_path):
     content = saved_path.read_text(encoding="utf-8")
     assert "150" in content
     assert "Calendar: Day" in content
+
+
+def test_generate_plots_end_to_end_on_real_csv(tmp_path):
+    real_csv = Path("/home/thiago/Projects/RuFaS/output/CSVs/Minas_Gerais_Pilot_saved_variables_csv_all_variables.txt_21-Sep-2026_Mon_11-14-15.csv")
+    if not real_csv.exists():
+        candidates = sorted(Path("/home/thiago/Projects/RuFaS/output/CSVs").glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            real_csv = candidates[0]
+        else:
+            pytest.skip("Piloto Minas Gerais CSV não encontrado no ambiente")
+
+    out_dir = tmp_path / "plots"
+    result = generate_plots(
+        input_path=real_csv,
+        preset="executive",
+        output_format="both",
+        output_dir=out_dir,
+        rolling_window=14
+    )
+
+    assert result["status"] == "success"
+    assert "png" in result["artifacts"]
+    assert "html" in result["artifacts"]
+    for path_str in result["artifacts"]["png"] + result["artifacts"]["html"]:
+        p = Path(path_str)
+        assert p.exists()
+        assert p.stat().st_size > 0
+
+
+def test_generate_plots_all_presets_and_compare(tmp_path):
+    base_csv = tmp_path / "base.csv"
+    scen_csv = tmp_path / "scen.csv"
+
+    base_data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0, 2.0],
+        "RufasTime.calendar_year (calendar year)": [2026.0, 2026.0, 2026.0],
+        "RufasTime.day (julian day)": [10.0, 11.0, 12.0],
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.estimated_daily_milk_produced (kg/day)": [30.0, 31.0, 32.0],
+        "AnimalModuleReporter.report_animal_population_statistics.population_number_of_cows (animals)": [100.0, 100.0, 100.0],
+        "AnimalModuleReporter.report_enteric_methane_emission.enteric_methane_emission_for_CALF_PEN_0 (g)": [400.0, 410.0, 420.0],
+        "AnimalModuleReporter.report_manure_excretions.CALF_PEN_0_manure_mass (kg)": [50.0, 52.0, 51.0],
+        "FeedManager.purchase_feed.ration_cost ($)": [20.0, 21.0, 22.0],
+        "FieldDataReporter.send_field_daily_variables.transpiration.field='field_1' (mm)": [3.0, 3.5, 4.0],
+    }
+    scen_data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0, 2.0],
+        "RufasTime.calendar_year (calendar year)": [2026.0, 2026.0, 2026.0],
+        "RufasTime.day (julian day)": [10.0, 11.0, 12.0],
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.estimated_daily_milk_produced (kg/day)": [32.0, 33.0, 34.0],
+        "AnimalModuleReporter.report_animal_population_statistics.population_number_of_cows (animals)": [100.0, 100.0, 100.0],
+        "AnimalModuleReporter.report_enteric_methane_emission.enteric_methane_emission_for_CALF_PEN_0 (g)": [380.0, 390.0, 395.0],
+        "AnimalModuleReporter.report_manure_excretions.CALF_PEN_0_manure_mass (kg)": [48.0, 49.0, 50.0],
+        "FeedManager.purchase_feed.ration_cost ($)": [22.0, 23.0, 24.0],
+        "FieldDataReporter.send_field_daily_variables.transpiration.field='field_1' (mm)": [3.1, 3.6, 4.1],
+    }
+    pd.DataFrame(base_data).to_csv(base_csv, index=False)
+    pd.DataFrame(scen_data).to_csv(scen_csv, index=False)
+
+    out_dir = tmp_path / "all_plots"
+    result = generate_plots(
+        input_path=base_csv,
+        compare_paths=[scen_csv],
+        preset="all",
+        output_format="both",
+        output_dir=out_dir,
+        rolling_window=2,
+        allow_external=True,
+    )
+
+    assert result["status"] == "success"
+    assert len(result["artifacts"]["png"]) == 5
+    assert len(result["artifacts"]["html"]) == 5
+    for p_str in result["artifacts"]["png"] + result["artifacts"]["html"]:
+        p = Path(p_str)
+        assert p.exists()
+        assert p.stat().st_size > 0
+    assert "metrics_summary" in result
+
+
+def test_generate_plots_custom_vars_and_formats(tmp_path):
+    csv_file = tmp_path / "custom.csv"
+    data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0, 2.0],
+        "var_a (kg)": [10.0, 20.0, 30.0],
+        "var_b ($)": [5.0, 15.0, 25.0],
+    }
+    pd.DataFrame(data).to_csv(csv_file, index=False)
+
+    # Test format="png" only
+    png_dir = tmp_path / "png_only"
+    res_png = generate_plots(
+        input_path=csv_file,
+        preset="custom",
+        custom_vars=["var_a (kg)", "var_b ($)"],
+        output_format="png",
+        output_dir=png_dir,
+        allow_external=True,
+    )
+    assert res_png["status"] == "success"
+    assert len(res_png["artifacts"]["png"]) == 1
+    assert len(res_png["artifacts"]["html"]) == 0
+
+    # Test format="html" only
+    html_dir = tmp_path / "html_only"
+    res_html = generate_plots(
+        input_path=csv_file,
+        preset="custom",
+        custom_vars=["var_a (kg)", "var_b ($)"],
+        output_format="html",
+        output_dir=html_dir,
+        allow_external=True,
+    )
+    assert res_html["status"] == "success"
+    assert len(res_html["artifacts"]["html"]) == 1
+    assert len(res_html["artifacts"]["png"]) == 0
+
+
+def test_generate_plots_auto_discovery(tmp_path):
+    csv_dir = tmp_path / "RuFaS" / "output" / "CSVs"
+    csv_dir.mkdir(parents=True)
+    old_csv = csv_dir / "sim_old.csv"
+    new_csv = csv_dir / "sim_new.csv"
+    old_csv.write_text("RufasTime.simulation_day (simulation day)\n0.0\n", encoding="utf-8")
+    import time
+    time.sleep(0.01)
+    new_csv.write_text("RufasTime.simulation_day (simulation day)\n0.0\n1.0\n", encoding="utf-8")
+
+    res = generate_plots(
+        input_path=tmp_path / "RuFaS" / "output",
+        preset="executive",
+        output_format="png",
+        output_dir=tmp_path / "out",
+        allow_external=True,
+    )
+    assert res["status"] == "success"
+    assert res["selected_csv"] == str(new_csv.resolve())
+
+
+def test_generate_plots_boundary_violation(tmp_path):
+    csv_file = tmp_path / "external.csv"
+    csv_file.write_text("RufasTime.simulation_day (simulation day)\n0.0\n", encoding="utf-8")
+    with pytest.raises(RuFaSBoundaryError):
+        generate_plots(input_path=csv_file, allow_external=False)
+
+
+def test_cli_execution_success(tmp_path, capsys, monkeypatch):
+    csv_file = tmp_path / "cli_sim.csv"
+    data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0],
+        "AnimalModuleReporter.report_animal_population_statistics.population_number_of_cows (animals)": [50.0, 50.0],
+    }
+    pd.DataFrame(data).to_csv(csv_file, index=False)
+
+    out_dir = tmp_path / "cli_out"
+    test_args = [
+        "rufas-plot",
+        str(csv_file),
+        "-p", "executive",
+        "-f", "both",
+        "-o", str(out_dir),
+        "--allow-external",
+    ]
+    monkeypatch.setattr("sys.argv", test_args)
+    exit_code = main()
+    assert exit_code in (0, None)
+
+    captured = capsys.readouterr()
+    assert "success" in captured.out.lower() or "generated" in captured.out.lower()
+    assert (out_dir / "executive_dashboard.png").exists()
+    assert (out_dir / "executive_dashboard.html").exists()
+
+
+def test_cli_execution_failure(tmp_path, capsys, monkeypatch):
+    test_args = [
+        "rufas-plot",
+        str(tmp_path / "nonexistent.csv"),
+        "--allow-external",
+    ]
+    monkeypatch.setattr("sys.argv", test_args)
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "error" in captured.err.lower() or "not found" in captured.err.lower()
+
 
 
 

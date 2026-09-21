@@ -9,6 +9,7 @@ column reading, and scenario comparisons.
 import argparse
 import re
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -43,6 +44,7 @@ __all__ = [
     "ScenarioDelta",
     "TemporalAligner",
     "extract_variable_unit",
+    "generate_plots",
     "resolve_columns_for_preset",
     "main",
 ]
@@ -2296,21 +2298,418 @@ class PlotlyRenderer:
                     )
 
 
-def main():
+def _is_temp_path(p: Path) -> bool:
+    """Checks if path is located in a system temporary directory."""
+    try:
+        resolved = p.resolve()
+        temp_dir = Path(tempfile.gettempdir()).resolve()
+        for parent in [resolved] + list(resolved.parents):
+            if parent == temp_dir or str(parent) in ("/tmp", "/var/tmp"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def find_latest_simulation_csv(
+    search_path: Optional[Union[str, Path]] = None,
+    allow_external: bool = False,
+) -> Path:
+    """
+    Resolves the target simulation CSV file. If search_path points to a directory
+    or is None, auto-discovers the latest CSV file by modification timestamp.
+    """
+    if search_path is not None:
+        raw_p = Path(search_path)
+        scoped_p = assert_within_rufas_scope(raw_p, allow_external=allow_external)
+        if scoped_p.is_file():
+            return scoped_p
+        if not scoped_p.exists():
+            raise FileNotFoundError(f"Simulation output path does not exist: {scoped_p}")
+
+        # scoped_p is a directory: check candidate subdirectories
+        candidate_dirs = [
+            scoped_p,
+            scoped_p / "CSVs",
+            scoped_p / "output" / "CSVs",
+            scoped_p / "output",
+        ]
+        csv_files: List[Path] = []
+        for d in candidate_dirs:
+            if d.is_dir():
+                csv_files.extend(d.glob("*.csv"))
+
+        unique_csvs = list(dict.fromkeys(csv_files))
+        if not unique_csvs:
+            raise FileNotFoundError(f"No simulation CSV found in directory: {scoped_p}")
+
+        latest_csv = sorted(unique_csvs, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+        return latest_csv
+
+    # search_path is None: auto-discover under RuFaS root or current working directory
+    roots_to_check: List[Path] = []
+    try:
+        rufas_root = get_rufas_root(require_valid=False)
+        if rufas_root and rufas_root.exists():
+            roots_to_check.append(rufas_root)
+    except Exception:
+        pass
+    roots_to_check.append(Path.cwd())
+
+    csv_files = []
+    for r in roots_to_check:
+        for sub in ["output/CSVs", "output", "CSVs"]:
+            d = r / sub
+            if d.is_dir():
+                csv_files.extend(d.glob("*.csv"))
+
+    unique_csvs = list(dict.fromkeys(csv_files))
+    if not unique_csvs:
+        raise FileNotFoundError("No simulation CSV found. Run a simulation first or specify input_path.")
+
+    latest_csv = sorted(unique_csvs, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    return assert_within_rufas_scope(latest_csv, allow_external=allow_external)
+
+
+def generate_plots(
+    input_path: Optional[Union[str, Path]] = None,
+    preset: str = "executive",
+    custom_vars: Optional[Union[str, List[str]]] = None,
+    output_format: str = "both",
+    compare_paths: Optional[List[Union[str, Path]]] = None,
+    output_dir: Optional[Union[str, Path]] = None,
+    rolling_window: int = 30,
+    dpi: int = 300,
+    title: Optional[str] = None,
+    allow_external: bool = False,
+) -> Dict[str, Any]:
+    """
+    Generates static and/or interactive multi-panel dashboards from RuFaS simulation outputs.
+
+    Parameters
+    ----------
+    input_path : Optional[Union[str, Path]]
+        Path to simulation CSV or output directory. If None or directory, auto-discovers latest CSV.
+    preset : str
+        Visualization preset ('executive', 'animal', 'eee', 'field-crops', 'manure', 'custom', or 'all').
+    custom_vars : Optional[Union[str, List[str]]]
+        List of custom variable names or regex patterns to plot.
+    output_format : str
+        Output format: 'both' (PNG + HTML), 'png', 'html', or 'pdf'.
+    compare_paths : Optional[List[Union[str, Path]]]
+        One or more simulation CSV paths or output directories for scenario comparison.
+    output_dir : Optional[Union[str, Path]]
+        Destination directory for generated plots. If None, defaults to <input_dir>/plots/.
+    rolling_window : int
+        Window size in days for moving average calculation (min 1, default 30).
+    dpi : int
+        Resolution for static image export (default 300).
+    title : Optional[str]
+        Custom title for the dashboard panels.
+    allow_external : bool
+        Whether to allow file access outside canonical RuFaS repository boundaries.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Execution summary dictionary with status, preset, artifacts, and metrics_summary.
+    """
+    # 1. Custom variables parsing
+    parsed_custom_vars: Optional[List[str]] = None
+    if custom_vars is not None:
+        if isinstance(custom_vars, str):
+            parsed_custom_vars = [v.strip() for v in custom_vars.split(",") if v.strip()]
+        elif isinstance(custom_vars, (list, tuple)):
+            parsed_custom_vars = [str(v).strip() for v in custom_vars if str(v).strip()]
+
+    # 2. Preset validation & normalization
+    normalized_preset = preset.lower().strip().replace("_", "-")
+    valid_presets = PresetRegistry.PRESETS + ["all"]
+    if normalized_preset not in valid_presets and normalized_preset not in PresetRegistry:
+        raise ValueError(
+            f"Unknown preset: '{preset}'. Valid presets are: {', '.join(PresetRegistry.PRESETS + ['all'])}"
+        )
+
+    if normalized_preset == "custom" and not parsed_custom_vars:
+        raise ValueError("Preset 'custom' requires 'custom_vars' to be specified.")
+
+    # 3. Output format validation
+    fmt = output_format.lower().strip()
+    if fmt not in ("both", "png", "html", "pdf"):
+        raise ValueError(
+            f"Invalid output_format '{output_format}'. Must be 'both', 'png', 'html', or 'pdf'."
+        )
+
+    # 4. Resolve baseline simulation CSV
+    selected_csv = find_latest_simulation_csv(input_path, allow_external=allow_external)
+
+    # 5. Resolve output destination directory
+    if output_dir is not None:
+        raw_out = Path(output_dir)
+        if _is_temp_path(raw_out):
+            target_output_dir = raw_out.resolve()
+        else:
+            target_output_dir = assert_within_rufas_scope(raw_out, allow_external=allow_external)
+    else:
+        if selected_csv.parent.name == "CSVs":
+            candidate = selected_csv.parent.parent / "plots"
+        else:
+            candidate = selected_csv.parent / "plots"
+        target_output_dir = assert_within_rufas_scope(candidate, allow_external=allow_external)
+
+    target_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 6. Resolve scenario comparison CSVs if provided
+    resolved_scenarios: List[Path] = []
+    if compare_paths:
+        for cp in compare_paths:
+            resolved_scenarios.append(
+                find_latest_simulation_csv(cp, allow_external=allow_external)
+            )
+
+    # 7. Determine presets to process
+    target_presets = (
+        ["executive", "animal", "eee", "field-crops", "manure"]
+        if normalized_preset == "all"
+        else [normalized_preset]
+    )
+
+    artifacts: Dict[str, List[str]] = {"png": [], "html": []}
+    if fmt == "pdf":
+        artifacts["pdf"] = []
+
+    metrics_summary: Dict[str, Any] = {}
+    matplotlib_renderer = MatplotlibRenderer()
+    plotly_renderer = PlotlyRenderer()
+
+    # 8. Loop over presets and render dashboards
+    for p_name in target_presets:
+        base_data = RaggedTimeSeriesLoader.load_aligned_dataframe(
+            csv_path=selected_csv,
+            preset=p_name,
+            custom_vars=parsed_custom_vars,
+            rolling_window=rolling_window,
+            allow_external=allow_external,
+        )
+
+        comparison_result = None
+        if resolved_scenarios:
+            scen_datasets = [
+                RaggedTimeSeriesLoader.load_aligned_dataframe(
+                    csv_path=scen_csv,
+                    preset=p_name,
+                    custom_vars=parsed_custom_vars,
+                    rolling_window=rolling_window,
+                    allow_external=allow_external,
+                )
+                for scen_csv in resolved_scenarios
+            ]
+            comparator = ScenarioComparator(base_data, scen_datasets)
+            comparison_result = comparator.compute_deltas()
+
+        # Extract KPI metrics summary
+        if comparison_result:
+            p_summary = comparison_result.summary
+        else:
+            p_summary = {}
+            for panel_key, panel_info in base_data.panels.items():
+                if panel_info.get("available"):
+                    col = panel_info.get("primary")
+                    if col and col in base_data.df.columns:
+                        series = base_data.df[col].dropna()
+                        if len(series) > 0:
+                            p_summary[panel_key] = {
+                                "mean": float(series.mean()),
+                                "min": float(series.min()),
+                                "max": float(series.max()),
+                                "sum": float(series.sum()),
+                                "unit": panel_info.get("unit"),
+                            }
+
+        if normalized_preset == "all":
+            metrics_summary[p_name] = p_summary
+        else:
+            metrics_summary = p_summary
+
+        # Determine dashboard title
+        if len(target_presets) > 1 and title:
+            preset_title = f"{title} - {PresetRegistry.get(p_name, {}).get('title', p_name)}"
+        else:
+            preset_title = title
+
+        # Output filenames stem
+        clean_stem = p_name.replace("-", "_")
+        filename_stem = f"{clean_stem}_dashboard"
+
+        # Render static (PNG)
+        if fmt in ("both", "png"):
+            png_path = target_output_dir / f"{filename_stem}.png"
+            matplotlib_renderer.render(
+                data=base_data,
+                output_path=png_path,
+                comparison=comparison_result,
+                dpi=dpi,
+                title=preset_title,
+            )
+            artifacts["png"].append(str(png_path.resolve()))
+
+        # Render interactive (HTML)
+        if fmt in ("both", "html"):
+            html_path = target_output_dir / f"{filename_stem}.html"
+            plotly_renderer.render(
+                data=base_data,
+                output_path=html_path,
+                comparison=comparison_result,
+                title=preset_title,
+            )
+            artifacts["html"].append(str(html_path.resolve()))
+
+        # Render static (PDF)
+        if fmt == "pdf":
+            pdf_path = target_output_dir / f"{filename_stem}.pdf"
+            matplotlib_renderer.render(
+                data=base_data,
+                output_path=pdf_path,
+                comparison=comparison_result,
+                dpi=dpi,
+                title=preset_title,
+            )
+            artifacts["pdf"].append(str(pdf_path.resolve()))
+
+    return {
+        "status": "success",
+        "preset": preset,
+        "selected_csv": str(selected_csv.resolve()),
+        "artifacts": artifacts,
+        "metrics_summary": metrics_summary,
+    }
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     """CLI entrypoint for rufas-plot."""
-    parser = argparse.ArgumentParser(description="RuFaS Simulation Visualization and Plotting Tool")
-    parser.add_argument("input_path", nargs="?", default=None, help="Path to simulation CSV or output directory")
+    parser = argparse.ArgumentParser(
+        prog="rufas-plot",
+        description="RuFaS Simulation Visualization and Plotting Tool (`rufas-plot`).",
+    )
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        default=None,
+        help="Caminho para o CSV de saída ou diretório output do RuFaS. Se omitido, detecta o último CSV gerado em RuFaS/output/CSVs/.",
+    )
     parser.add_argument(
         "-p",
         "--preset",
-        choices=["executive", "animal", "eee", "field-crops", "manure", "all", "custom"],
-        default="executive",
-        help="Visualization preset",
+        choices=["executive", "animal", "eee", "field-crops", "field_crops", "manure", "all", "custom"],
+        default=None,
+        help="Preset de visualização a gerar (Padrão: executive).",
     )
-    parser.add_argument("-v", "--vars", dest="custom_vars", default=None, help="Custom variables / regex to plot")
-    args = parser.parse_args()
-    print(f"rufas-plot (preset: {args.preset})")
+    parser.add_argument(
+        "-v",
+        "--vars",
+        dest="custom_vars",
+        nargs="+",
+        default=None,
+        help="Lista de colunas ou regex customizadas para plotar (Modo custom).",
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        dest="output_format",
+        choices=["both", "png", "html", "pdf"],
+        default="both",
+        help="Formato de exportação (Padrão: both).",
+    )
+    parser.add_argument(
+        "-c",
+        "--compare",
+        dest="compare_paths",
+        nargs="+",
+        default=None,
+        help="Um ou mais caminhos de CSVs de cenários para comparação.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        dest="output_dir",
+        default=None,
+        help="Diretório de destino dos gráficos (Padrão: <input>/plots/).",
+    )
+    parser.add_argument(
+        "-w",
+        "--rolling-window",
+        dest="rolling_window",
+        type=int,
+        default=30,
+        help="Janela em dias para cálculo da média móvel (Padrão: 30).",
+    )
+    parser.add_argument(
+        "--dpi",
+        type=int,
+        default=300,
+        help="Resolução das imagens estáticas (Padrão: 300).",
+    )
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Título customizado do painel.",
+    )
+    parser.add_argument(
+        "--allow-external",
+        action="store_true",
+        default=False,
+        help="Permite caminhos fora dos limites autorizados do RuFaS.",
+    )
+
+    args = parser.parse_args(argv)
+
+    # Parse custom vars
+    vars_list: List[str] = []
+    if args.custom_vars:
+        for item in args.custom_vars:
+            for sub in item.split(","):
+                cleaned = sub.strip()
+                if cleaned:
+                    vars_list.append(cleaned)
+
+    # Resolve preset default
+    if args.preset is None:
+        preset_to_use = "custom" if vars_list else "executive"
+    else:
+        preset_to_use = args.preset
+
+    try:
+        result = generate_plots(
+            input_path=args.input_path,
+            preset=preset_to_use,
+            custom_vars=vars_list or None,
+            output_format=args.output_format,
+            compare_paths=args.compare_paths,
+            output_dir=args.output_dir,
+            rolling_window=args.rolling_window,
+            dpi=args.dpi,
+            title=args.title,
+            allow_external=args.allow_external,
+        )
+        print(f"✅ Generated plots successfully (preset: {result['preset']})")
+        print(f"  Source CSV: {result['selected_csv']}")
+        if result["artifacts"].get("png"):
+            for p in result["artifacts"]["png"]:
+                print(f"  - PNG: {p}")
+        if result["artifacts"].get("html"):
+            for p in result["artifacts"]["html"]:
+                print(f"  - HTML: {p}")
+        if result["artifacts"].get("pdf"):
+            for p in result["artifacts"]["pdf"]:
+                print(f"  - PDF: {p}")
+        return 0
+    except (RuFaSBoundaryError, RuFaSConfigError, FileNotFoundError, ValueError) as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
