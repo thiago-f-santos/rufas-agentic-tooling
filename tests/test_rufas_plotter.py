@@ -6,6 +6,9 @@ from tools.rufas_plotter import (
     AlignedSimulationData,
     PresetRegistry,
     RaggedTimeSeriesLoader,
+    ScenarioComparator,
+    ScenarioComparisonResult,
+    ScenarioDelta,
     TemporalAligner,
     resolve_columns_for_preset,
 )
@@ -208,6 +211,122 @@ def test_temporal_aligner_empty_csv(tmp_path):
     assert len(aligned.df) == 0
     assert list(aligned.df.index) == []
     assert isinstance(aligned.df.index, pd.RangeIndex)
+
+
+def test_scenario_comparator_delta_calculation():
+    df_base = pd.DataFrame(
+        {
+            "milk_produced_total": [100.0, 100.0, 100.0],
+            "methane_emission": [50.0, 50.0, 50.0],
+        },
+        index=[0, 1, 2],
+    )
+
+    df_scen = pd.DataFrame(
+        {
+            "milk_produced_total": [105.0, 110.0, 100.0],
+            "methane_emission": [45.0, 40.0, 45.0],
+        },
+        index=[0, 1, 2],
+    )
+
+    base = AlignedSimulationData(
+        df=df_base,
+        name="Baseline",
+        units={"milk_produced_total": "kg/day", "methane_emission": "g/day"},
+    )
+    scen = AlignedSimulationData(
+        df=df_scen,
+        name="Treatment",
+        units={"milk_produced_total": "kg/day", "methane_emission": "g/day"},
+    )
+
+    comp = ScenarioComparator(base, [scen])
+    result = comp.compute_deltas()
+
+    # Leite no dia 1 aumentou 10%
+    assert result.scenarios[0].pct_deltas["milk_produced_total"][1] == 10.0
+    # Metano no dia 1 reduziu 20%
+    assert result.scenarios[0].pct_deltas["methane_emission"][1] == -20.0
+    # Resumo anual acumulado
+    summary = comp.get_kpi_summary()
+    assert summary["Treatment"]["methane_emission"]["total_delta_pct"] == pytest.approx(-13.33, rel=1e-2)
+
+
+def test_scenario_comparator_zero_division_safe_handling():
+    df_base = pd.DataFrame(
+        {
+            "var_zero": [0.0, 0.0, 10.0],
+            "var_normal": [10.0, 20.0, 30.0],
+        },
+        index=[0, 1, 2],
+    )
+    df_scen = pd.DataFrame(
+        {
+            "var_zero": [0.0, 5.0, 10.0],
+            "var_normal": [10.0, 25.0, 15.0],
+        },
+        index=[0, 1, 2],
+    )
+    base = AlignedSimulationData(df=df_base, name="BaseZero")
+    scen = AlignedSimulationData(df=df_scen, name="ScenZero")
+
+    comp = ScenarioComparator(base, scen)
+    result = comp.compute_deltas()
+
+    # When base is 0, pct delta must safely be 0.0 without division by zero warning/error
+    assert result.scenarios[0].pct_deltas["var_zero"][0] == 0.0
+    assert result.scenarios[0].pct_deltas["var_zero"][1] == 0.0
+    assert result.scenarios[0].abs_deltas["var_zero"][1] == 5.0
+
+    summary = comp.get_kpi_summary()
+    assert "ScenZero" in summary
+    assert summary["ScenZero"]["var_normal"]["mean_delta_pct"] == pytest.approx(-16.666, rel=1e-2)
+
+
+def test_scenario_comparator_mismatched_timelines():
+    # Base has 4 days, scenario has 2 days
+    df_base = pd.DataFrame({"metric": [10.0, 20.0, 30.0, 40.0]}, index=[0, 1, 2, 3])
+    df_scen = pd.DataFrame({"metric": [12.0, 24.0]}, index=[0, 1])
+
+    base = AlignedSimulationData(df=df_base, name="Base4D")
+    scen = AlignedSimulationData(df=df_scen, name="Scen2D")
+
+    comp = ScenarioComparator(base, [scen])
+    result = comp.compute_deltas()
+
+    assert len(result.common_index) == 2
+    assert list(result.common_index) == [0, 1]
+    assert len(result.scenarios[0].abs_deltas) == 2
+    assert result.scenarios[0].abs_deltas["metric"].tolist() == [2.0, 4.0]
+    assert result.scenarios[0].pct_deltas["metric"].tolist() == [20.0, 20.0]
+
+
+def test_scenario_comparator_multiple_scenarios_and_classmethod_compare():
+    df_base = pd.DataFrame({"val": [100.0, 200.0]}, index=[0, 1])
+    df_s1 = pd.DataFrame({"val": [110.0, 220.0]}, index=[0, 1])
+    df_s2 = pd.DataFrame({"val": [90.0, 180.0]}, index=[0, 1])
+
+    base = AlignedSimulationData(df=df_base, name="Base")
+    s1 = AlignedSimulationData(df=df_s1, name="Plus10")
+    s2 = AlignedSimulationData(df=df_s2, name="Minus10")
+
+    result = ScenarioComparator.compare(base, [s1, s2])
+    assert len(result.scenarios) == 2
+    assert result.scenarios[0].name == "Plus10"
+    assert result.scenarios[1].name == "Minus10"
+    assert result.scenarios[0].pct_deltas["val"].tolist() == [10.0, 10.0]
+    assert result.scenarios[1].pct_deltas["val"].tolist() == [-10.0, -10.0]
+
+    comp = ScenarioComparator(base, [s1, s2])
+    comp.compute_deltas()
+    overlay = comp.get_overlay_series("val")
+    assert "Base" in overlay
+    assert "Plus10" in overlay
+    assert "Minus10" in overlay
+    assert overlay["Base"].tolist() == [100.0, 200.0]
+    assert overlay["Plus10"].tolist() == [110.0, 220.0]
+
 
 
 

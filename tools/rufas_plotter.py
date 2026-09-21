@@ -28,6 +28,9 @@ __all__ = [
     "PresetRegistry",
     "PRESET_DEFINITIONS",
     "RaggedTimeSeriesLoader",
+    "ScenarioComparator",
+    "ScenarioComparisonResult",
+    "ScenarioDelta",
     "TemporalAligner",
     "extract_variable_unit",
     "resolve_columns_for_preset",
@@ -971,6 +974,323 @@ class RaggedTimeSeriesLoader:
         return aligner.align(rolling_window=rolling_window)
 
     load_aligned_series = load_aligned_dataframe
+
+
+@dataclass
+class ScenarioDelta:
+    """
+    Delta comparison metrics between a scenario and baseline.
+
+    Attributes
+    ----------
+    name : str
+        Identifier or name of the scenario.
+    data : AlignedSimulationData
+        Original scenario simulation container.
+    abs_deltas : pd.DataFrame
+        DataFrame of absolute differences (scenario - baseline) indexed by simulation_day.
+    pct_deltas : pd.DataFrame
+        DataFrame of percentage differences ((scenario - baseline) / baseline * 100) indexed by simulation_day.
+    kpi_summary : Dict[str, Dict[str, Any]]
+        Aggregated KPI differences (totals, means, absolute and percent deltas) for this scenario.
+    """
+
+    name: str
+    data: AlignedSimulationData
+    abs_deltas: pd.DataFrame
+    pct_deltas: pd.DataFrame
+    kpi_summary: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass
+class ScenarioComparisonResult:
+    """
+    Result container for multi-scenario comparative analytics.
+
+    Attributes
+    ----------
+    baseline : AlignedSimulationData
+        Baseline simulation dataset.
+    scenarios : List[ScenarioDelta]
+        List of ScenarioDelta containers for each evaluated scenario.
+    common_index : pd.Index
+        Common simulation_day index across baseline and all scenarios.
+    summary : Dict[str, Dict[str, Dict[str, Any]]]
+        Consolidated KPI summary table mapped by scenario name and metric name.
+    calendar_years : Optional[pd.Series]
+        Continuous Series of calendar years aligned to common_index.
+    julian_days : Optional[pd.Series]
+        Continuous Series of Julian days aligned to common_index.
+    """
+
+    baseline: AlignedSimulationData
+    scenarios: List[ScenarioDelta] = field(default_factory=list)
+    common_index: pd.Index = field(default_factory=pd.RangeIndex)
+    summary: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
+    calendar_years: Optional[pd.Series] = None
+    julian_days: Optional[pd.Series] = None
+
+    def __len__(self) -> int:
+        return len(self.common_index)
+
+    def get_scenario(self, name: str) -> Optional[ScenarioDelta]:
+        """Returns ScenarioDelta matching the given scenario name, or None."""
+        for s in self.scenarios:
+            if s.name == name:
+                return s
+        return None
+
+    def get_names(self) -> List[str]:
+        """Returns list of scenario names."""
+        return [s.name for s in self.scenarios]
+
+
+class _CompareCallable:
+    """Descriptor that allows .compare() to work both as a classmethod and an instance method."""
+
+    def __get__(self, instance, owner):
+        if instance is None:
+
+            def _classmethod_compare(
+                baseline_data: AlignedSimulationData,
+                scenario_data: Union[AlignedSimulationData, List[AlignedSimulationData]],
+            ) -> ScenarioComparisonResult:
+                scenarios = scenario_data if isinstance(scenario_data, list) else [scenario_data]
+                return owner(baseline=baseline_data, scenarios=scenarios).compute_deltas()
+
+            return _classmethod_compare
+        else:
+
+            def _instance_compare(
+                baseline_data: Optional[AlignedSimulationData] = None,
+                scenario_data: Optional[Union[AlignedSimulationData, List[AlignedSimulationData]]] = None,
+            ) -> ScenarioComparisonResult:
+                if baseline_data is None and scenario_data is None:
+                    return instance.compute_deltas()
+                scenarios = scenario_data if isinstance(scenario_data, list) else [scenario_data]
+                return owner(baseline=baseline_data, scenarios=scenarios).compute_deltas()
+
+            return _instance_compare
+
+
+class ScenarioComparator:
+    """
+    Ingests a baseline simulation and one or more scenario simulations,
+    aligns their timelines to a common index, computes absolute and percentage deltas,
+    and produces consolidated KPI summary tables.
+    """
+
+    compare = _CompareCallable()
+
+    def __init__(
+        self,
+        baseline: Optional[AlignedSimulationData] = None,
+        scenarios: Optional[Union[AlignedSimulationData, List[AlignedSimulationData]]] = None,
+        *,
+        baseline_data: Optional[AlignedSimulationData] = None,
+        scenario_data: Optional[Union[AlignedSimulationData, List[AlignedSimulationData]]] = None,
+    ):
+        base = baseline if baseline is not None else baseline_data
+        if base is None or not isinstance(base, AlignedSimulationData):
+            raise TypeError("baseline must be an instance of AlignedSimulationData")
+
+        scens_raw = scenarios if scenarios is not None else scenario_data
+        if scens_raw is None:
+            scens: List[AlignedSimulationData] = []
+        elif isinstance(scens_raw, AlignedSimulationData):
+            scens = [scens_raw]
+        elif isinstance(scens_raw, (list, tuple)):
+            scens = list(scens_raw)
+        else:
+            raise TypeError("scenarios must be an AlignedSimulationData or list of AlignedSimulationData")
+
+        for s in scens:
+            if not isinstance(s, AlignedSimulationData):
+                raise TypeError(f"Scenario item {s} must be an instance of AlignedSimulationData")
+
+        self.baseline = base
+        self.scenarios = scens
+        self._result: Optional[ScenarioComparisonResult] = None
+
+    def compute_deltas(self, metrics: Optional[List[str]] = None) -> ScenarioComparisonResult:
+        """
+        Aligns simulation timelines to a common index, computes absolute differences
+        (scenario - baseline) and percentage differences ((scenario - baseline) / baseline * 100)
+        with safe zero handling, and generates KPI summary statistics.
+
+        Parameters
+        ----------
+        metrics : Optional[List[str]]
+            Specific metrics to compute deltas for. If None, computes for all common numeric columns.
+
+        Returns
+        -------
+        ScenarioComparisonResult
+            Container with scenario deltas, common timeline index, and consolidated KPI summary.
+        """
+        # Determine common simulation day index
+        common_index = self.baseline.df.index
+        for s in self.scenarios:
+            common_index = common_index.intersection(s.df.index)
+        common_index = common_index.sort_values()
+
+        # Identify numeric columns in baseline
+        base_numeric = [
+            c
+            for c in self.baseline.df.columns
+            if pd.api.types.is_numeric_dtype(self.baseline.df[c])
+        ]
+
+        scenario_deltas: List[ScenarioDelta] = []
+        overall_summary: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+        for scen in self.scenarios:
+            target_metrics = (
+                metrics
+                if metrics is not None
+                else [
+                    c
+                    for c in base_numeric
+                    if c in scen.df.columns and pd.api.types.is_numeric_dtype(scen.df[c])
+                ]
+            )
+
+            abs_df = pd.DataFrame(index=common_index)
+            pct_df = pd.DataFrame(index=common_index)
+            abs_df.index.name = "simulation_day"
+            pct_df.index.name = "simulation_day"
+
+            scen_summary: Dict[str, Dict[str, Any]] = {}
+
+            for m in target_metrics:
+                if m not in self.baseline.df.columns or m not in scen.df.columns:
+                    continue
+
+                if len(common_index) == 0:
+                    abs_series = pd.Series(index=common_index, dtype=float)
+                    pct_series = pd.Series(index=common_index, dtype=float)
+                    base_tot = 0.0
+                    scen_tot = 0.0
+                    base_mean = 0.0
+                    scen_mean = 0.0
+                else:
+                    b_series = pd.to_numeric(self.baseline.df.loc[common_index, m], errors="coerce")
+                    s_series = pd.to_numeric(scen.df.loc[common_index, m], errors="coerce")
+
+                    abs_series = s_series - b_series
+
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        safe_base = np.where(b_series == 0, np.nan, b_series)
+                        is_nan = np.isnan(b_series) | np.isnan(s_series)
+                        pct_arr = np.where(
+                            is_nan,
+                            np.nan,
+                            np.where(b_series == 0, 0.0, (s_series - b_series) / safe_base * 100.0),
+                        )
+                    pct_series = pd.Series(pct_arr, index=common_index, dtype=float)
+
+                    base_tot = float(b_series.sum())
+                    scen_tot = float(s_series.sum())
+                    base_mean = float(b_series.mean())
+                    scen_mean = float(s_series.mean())
+
+                abs_df[m] = abs_series
+                pct_df[m] = pct_series
+
+                total_delta_abs = scen_tot - base_tot
+                total_delta_pct = (
+                    ((scen_tot - base_tot) / base_tot * 100.0) if base_tot != 0.0 else 0.0
+                )
+                mean_delta_abs = scen_mean - base_mean
+                mean_delta_pct = (
+                    ((scen_mean - base_mean) / base_mean * 100.0) if base_mean != 0.0 else 0.0
+                )
+
+                unit = self.baseline.units.get(m, scen.units.get(m, ""))
+
+                scen_summary[m] = {
+                    "baseline_total": base_tot,
+                    "scenario_total": scen_tot,
+                    "total_delta_abs": total_delta_abs,
+                    "total_delta_pct": total_delta_pct,
+                    "baseline_mean": base_mean,
+                    "scenario_mean": scen_mean,
+                    "mean_delta_abs": mean_delta_abs,
+                    "mean_delta_pct": mean_delta_pct,
+                    "unit": unit,
+                }
+
+            scen_delta = ScenarioDelta(
+                name=scen.name,
+                data=scen,
+                abs_deltas=abs_df,
+                pct_deltas=pct_df,
+                kpi_summary=scen_summary,
+            )
+            scenario_deltas.append(scen_delta)
+            overall_summary[scen.name] = scen_summary
+
+        cal_years = (
+            self.baseline.calendar_years.reindex(common_index)
+            if self.baseline.calendar_years is not None
+            else None
+        )
+        jul_days = (
+            self.baseline.julian_days.reindex(common_index)
+            if self.baseline.julian_days is not None
+            else None
+        )
+
+        result = ScenarioComparisonResult(
+            baseline=self.baseline,
+            scenarios=scenario_deltas,
+            common_index=common_index,
+            summary=overall_summary,
+            calendar_years=cal_years,
+            julian_days=jul_days,
+        )
+        self._result = result
+        return result
+
+    def get_kpi_summary(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """
+        Returns consolidated KPI summary dictionary:
+        {scenario_name: {metric_name: {...summary_stats...}}}
+        """
+        if self._result is None:
+            self.compute_deltas()
+        return self._result.summary
+
+    def get_overlay_series(self, metric: str) -> Dict[str, pd.Series]:
+        """
+        Returns dictionary mapping dataset names to aligned series for a given metric:
+        {baseline_name: baseline_series, scenario1_name: scenario1_series, ...}
+        """
+        if self._result is None:
+            self.compute_deltas()
+        idx = self._result.common_index
+        series_map: Dict[str, pd.Series] = {}
+        if metric in self.baseline.df.columns:
+            series_map[self.baseline.name] = self.baseline.df.loc[idx, metric]
+        for s in self.scenarios:
+            if metric in s.df.columns:
+                series_map[s.name] = s.df.loc[idx, metric]
+        return series_map
+
+    def get_common_metrics(self) -> List[str]:
+        """Returns list of numeric metrics present in baseline and all scenarios."""
+        metrics = [
+            c
+            for c in self.baseline.df.columns
+            if pd.api.types.is_numeric_dtype(self.baseline.df[c])
+        ]
+        for s in self.scenarios:
+            metrics = [
+                c
+                for c in metrics
+                if c in s.df.columns and pd.api.types.is_numeric_dtype(s.df[c])
+            ]
+        return metrics
 
 
 def main():
