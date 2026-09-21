@@ -689,6 +689,111 @@ def test_plotly_renderer_suffix_handling(tmp_path):
     assert saved_path.exists()
 
 
+def test_plotly_renderer_legend_displayed_when_panel_zero_missing(tmp_path):
+    df = pd.DataFrame({
+        "var_b": [10.0, 20.0, 30.0],
+        "var_b_rolling": [10.0, 15.0, 20.0],
+    }, index=[0, 1, 2])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="MissingFirstPanelSim",
+        preset="executive",
+        units={"var_b": "kg"},
+        panels={
+            "panel_0_missing": {
+                "primary": None,
+                "rolling": None,
+                "title": "Missing First Panel",
+                "unit": "kg",
+                "available": False,
+                "missing_reason": "Module not configured",
+            },
+            "panel_1_valid": {
+                "primary": "var_b",
+                "rolling": "var_b_rolling",
+                "title": "Valid Second Panel",
+                "unit": "kg",
+                "available": True,
+            },
+        },
+    )
+
+    out_file = tmp_path / "panel_0_missing.html"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(data, out_file)
+
+    assert saved_path.exists()
+    content = saved_path.read_text(encoding="utf-8")
+    # Verify that showlegend=true is present for the valid panel's traces
+    assert '"showlegend":true' in content or '"showlegend": true' in content
+    assert "Rolling Avg" in content
+    assert "Daily" in content
+
+
+def test_plotly_renderer_fewer_panels_grid_rangeslider_and_ticks(tmp_path):
+    # Executive preset with only 3 panels instead of 6
+    df = pd.DataFrame({
+        "p1": [1.0, 2.0],
+        "p2": [3.0, 4.0],
+        "p3": [5.0, 6.0],
+    }, index=[0, 1])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="FewPanelsSim",
+        preset="executive",
+        panels={
+            "p1": {"primary": "p1", "title": "Panel 1", "available": True},
+            "p2": {"primary": "p2", "title": "Panel 2", "available": True},
+            "p3": {"primary": "p3", "title": "Panel 3", "available": True},
+        },
+    )
+
+    renderer = PlotlyRenderer()
+    # Check grid determination directly
+    nrows, ncols = renderer._determine_grid("executive", 3)
+    assert nrows == 2
+    assert ncols == 2
+
+    out_file = tmp_path / "few_panels.html"
+    saved_path = renderer.render(data, out_file)
+    assert saved_path.exists()
+    content = saved_path.read_text(encoding="utf-8")
+
+    # Range slider should be present and visible
+    assert "rangeslider" in content
+    assert '"visible":true' in content or '"visible": true' in content
+    # Tick labels should be enabled
+    assert '"showticklabels":true' in content or '"showticklabels": true' in content
+
+
+def test_plotly_renderer_julian_days_without_calendar_years(tmp_path):
+    df = pd.DataFrame({"val": [10.0, 20.0]}, index=[0, 1])
+    jul_days = pd.Series([150, 151], index=[0, 1])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="JulianOnlySim",
+        units={"val": "kg"},
+        panels={
+            "metric": {"primary": "val", "title": "Metric", "unit": "kg", "available": True}
+        },
+        calendar_years=None,
+        julian_days=jul_days,
+    )
+
+    out_file = tmp_path / "julian_only.html"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(data, out_file)
+
+    assert saved_path.exists()
+    content = saved_path.read_text(encoding="utf-8")
+    assert "150" in content
+    assert "Calendar: Day" in content
+
+
+
 
 
 

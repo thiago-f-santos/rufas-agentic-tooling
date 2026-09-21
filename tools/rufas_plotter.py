@@ -1711,27 +1711,26 @@ class PlotlyRenderer:
         """Calculates (nrows, ncols) grid based on preset and number of panels."""
         norm_preset = (preset or "custom").strip().lower().replace("_", "-")
         if norm_preset == "executive":
-            if n_panels <= 6:
-                return (3, 2)
-            ncols = 2
-            return ((n_panels + ncols - 1) // ncols, ncols)
+            ncols = 2 if n_panels > 1 else 1
+            max_rows = (n_panels + ncols - 1) // ncols
+            preset_nrows = max(3, max_rows) if n_panels > 6 else 3
+            nrows = max(1, min(preset_nrows, max_rows))
+            return (nrows, ncols)
         elif norm_preset in ("animal", "eee", "field-crops", "manure"):
-            if n_panels <= 4:
-                return (2, 2)
-            ncols = 2
-            return ((n_panels + ncols - 1) // ncols, ncols)
+            ncols = 2 if n_panels > 1 else 1
+            max_rows = (n_panels + ncols - 1) // ncols
+            preset_nrows = max(2, max_rows) if n_panels > 4 else 2
+            nrows = max(1, min(preset_nrows, max_rows))
+            return (nrows, ncols)
         else:
             if n_panels <= 1:
                 return (1, 1)
             elif n_panels == 2:
                 return (1, 2)
-            elif n_panels <= 4:
-                return (2, 2)
-            elif n_panels <= 6:
-                return (3, 2)
             else:
                 ncols = 2
-                return ((n_panels + ncols - 1) // ncols, ncols)
+                max_rows = (n_panels + ncols - 1) // ncols
+                return (max_rows, ncols)
 
     def _get_panel_color(self, panel_key: str, index: int) -> str:
         """Determines semantic color for a panel key, falling back to palette."""
@@ -1810,6 +1809,25 @@ class PlotlyRenderer:
                     "<b>%{fullData.name}</b><br>"
                     "Simulation Day: %{x}<br>"
                     "Calendar: Year %{customdata[0]:.0f}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<extra></extra>"
+                )
+        elif has_days:
+            days = jul_s.values
+            if has_pct:
+                custom = np.column_stack([days, pct_s.fillna(0.0).values])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    "Calendar: Day %{customdata[0]:.0f}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<br>"
+                    "Δ: %{customdata[1]:+.1f}%<extra></extra>"
+                )
+            else:
+                custom = np.column_stack([days])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    "Calendar: Day %{customdata[0]:.0f}<br>"
                     f"Value: %{{y:.2f}}{unit_str}<extra></extra>"
                 )
         else:
@@ -1914,10 +1932,24 @@ class PlotlyRenderer:
                 ncols=ncols,
             )
 
+        # Hide extra empty subplots
+        for extra_idx in range(len(panels_list), nrows * ncols):
+            er = extra_idx // ncols + 1
+            ec = extra_idx % ncols + 1
+            fig.update_xaxes(visible=False, row=er, col=ec)
+            fig.update_yaxes(visible=False, row=er, col=ec)
+
         # Synchronize all x-axes
         fig.update_xaxes(matches="x")
 
-        # Range slider on the bottom axis for timeline navigation
+        # Range slider and x-axis labels on the bottom-most visible row for each column
+        for c in range(1, ncols + 1):
+            active_rows = [idx // ncols + 1 for idx in range(len(panels_list)) if idx % ncols + 1 == c]
+            if active_rows:
+                bottom_r = max(active_rows)
+                fig.update_xaxes(showticklabels=True, title_text="Simulation Day", row=bottom_r, col=c)
+
+        # Range slider on the bottom axis of column 1 for timeline navigation
         fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.04), row=nrows, col=1)
 
         # Axis styling and labels
@@ -1927,16 +1959,6 @@ class PlotlyRenderer:
             unit = p_info.get("unit") or data.units.get(p_info.get("primary", ""), "")
             if unit and p_info.get("available", True):
                 fig.update_yaxes(title_text=unit, row=r, col=c)
-
-        for c in range(1, ncols + 1):
-            fig.update_xaxes(title_text="Simulation Day", row=nrows, col=c)
-
-        # Hide extra empty subplots
-        for extra_idx in range(len(panels_list), nrows * ncols):
-            er = extra_idx // ncols + 1
-            ec = extra_idx % ncols + 1
-            fig.update_xaxes(visible=False, row=er, col=ec)
-            fig.update_yaxes(visible=False, row=er, col=ec)
 
         # Overall dashboard title
         preset_str = data.preset or "custom"
@@ -1982,6 +2004,8 @@ class PlotlyRenderer:
         nrows: int,
         ncols: int,
     ) -> None:
+        shown_legends: set[str] = set()
+
         for idx, (panel_key, panel_info) in enumerate(panels_list):
             r = idx // ncols + 1
             c = idx % ncols + 1
@@ -2011,6 +2035,9 @@ class PlotlyRenderer:
 
             if has_rolling:
                 y_roll = data.df[rolling_col]
+                show_daily = "Daily" not in shown_legends
+                if show_daily:
+                    shown_legends.add("Daily")
                 # Daily trace (semitransparent)
                 fig.add_trace(
                     go.Scatter(
@@ -2018,7 +2045,7 @@ class PlotlyRenderer:
                         y=y_raw,
                         name="Daily",
                         legendgroup="Daily",
-                        showlegend=(idx == 0),
+                        showlegend=show_daily,
                         mode="lines",
                         line=dict(color=color, width=1.0),
                         opacity=0.35,
@@ -2028,6 +2055,9 @@ class PlotlyRenderer:
                     row=r,
                     col=c,
                 )
+                show_roll = "Rolling Avg" not in shown_legends
+                if show_roll:
+                    shown_legends.add("Rolling Avg")
                 # Rolling trace (solid)
                 fig.add_trace(
                     go.Scatter(
@@ -2035,7 +2065,7 @@ class PlotlyRenderer:
                         y=y_roll,
                         name="Rolling Avg",
                         legendgroup="Rolling Avg",
-                        showlegend=(idx == 0),
+                        showlegend=show_roll,
                         mode="lines",
                         line=dict(color=color, width=2.5),
                         customdata=custom,
@@ -2045,13 +2075,16 @@ class PlotlyRenderer:
                     col=c,
                 )
             else:
+                show_daily = "Daily" not in shown_legends
+                if show_daily:
+                    shown_legends.add("Daily")
                 fig.add_trace(
                     go.Scatter(
                         x=x,
                         y=y_raw,
                         name="Daily",
                         legendgroup="Daily",
-                        showlegend=(idx == 0),
+                        showlegend=show_daily,
                         mode="lines",
                         line=dict(color=color, width=2.2),
                         customdata=custom,
@@ -2071,6 +2104,7 @@ class PlotlyRenderer:
     ) -> None:
         common_x = comparison.common_index
         base_data = comparison.baseline
+        shown_legends: set[str] = set()
 
         for idx, (panel_key, panel_info) in enumerate(panels_list):
             r = idx // ncols + 1
@@ -2101,13 +2135,18 @@ class PlotlyRenderer:
 
             if has_b_roll:
                 b_roll = base_data.df.loc[common_x, rolling_col]
+                b_daily_key = f"{base_data.name} (Daily)"
+                show_b_daily = b_daily_key not in shown_legends
+                if show_b_daily:
+                    shown_legends.add(b_daily_key)
+
                 fig.add_trace(
                     go.Scatter(
                         x=common_x,
                         y=b_raw,
-                        name=f"{base_data.name} (Daily)",
+                        name=b_daily_key,
                         legendgroup=base_data.name,
-                        showlegend=(idx == 0),
+                        showlegend=show_b_daily,
                         mode="lines",
                         line=dict(color=base_color, width=1.0),
                         opacity=0.25,
@@ -2117,13 +2156,19 @@ class PlotlyRenderer:
                     row=r,
                     col=c,
                 )
+
+                b_roll_key = f"{base_data.name} (Base)"
+                show_b_roll = b_roll_key not in shown_legends
+                if show_b_roll:
+                    shown_legends.add(b_roll_key)
+
                 fig.add_trace(
                     go.Scatter(
                         x=common_x,
                         y=b_roll,
-                        name=f"{base_data.name} (Base)",
+                        name=b_roll_key,
                         legendgroup=base_data.name,
-                        showlegend=(idx == 0),
+                        showlegend=show_b_roll,
                         mode="lines",
                         line=dict(color=base_color, width=2.5),
                         customdata=custom_base,
@@ -2133,13 +2178,18 @@ class PlotlyRenderer:
                     col=c,
                 )
             else:
+                b_base_key = f"{base_data.name} (Base)"
+                show_b_base = b_base_key not in shown_legends
+                if show_b_base:
+                    shown_legends.add(b_base_key)
+
                 fig.add_trace(
                     go.Scatter(
                         x=common_x,
                         y=b_raw,
-                        name=f"{base_data.name} (Base)",
+                        name=b_base_key,
                         legendgroup=base_data.name,
-                        showlegend=(idx == 0),
+                        showlegend=show_b_base,
                         mode="lines",
                         line=dict(color=base_color, width=2.2),
                         customdata=custom_base,
@@ -2181,13 +2231,18 @@ class PlotlyRenderer:
 
                 if has_s_roll:
                     s_roll = s_df.loc[common_x, rolling_col]
+                    s_daily_key = f"{scen_delta.name} (Daily)"
+                    show_s_daily = s_daily_key not in shown_legends
+                    if show_s_daily:
+                        shown_legends.add(s_daily_key)
+
                     fig.add_trace(
                         go.Scatter(
                             x=common_x,
                             y=s_raw,
-                            name=f"{scen_delta.name} (Daily)",
+                            name=s_daily_key,
                             legendgroup=scen_delta.name,
-                            showlegend=(idx == 0),
+                            showlegend=show_s_daily,
                             mode="lines",
                             line=dict(color=scen_col, width=1.0, dash=scen_dash),
                             opacity=0.25,
@@ -2197,13 +2252,19 @@ class PlotlyRenderer:
                         row=r,
                         col=c,
                     )
+
+                    s_roll_key = scen_delta.name
+                    show_s_roll = s_roll_key not in shown_legends
+                    if show_s_roll:
+                        shown_legends.add(s_roll_key)
+
                     fig.add_trace(
                         go.Scatter(
                             x=common_x,
                             y=s_roll,
-                            name=scen_delta.name,
+                            name=s_roll_key,
                             legendgroup=scen_delta.name,
-                            showlegend=(idx == 0),
+                            showlegend=show_s_roll,
                             mode="lines",
                             line=dict(color=scen_col, width=2.2, dash=scen_dash),
                             customdata=custom_scen_roll,
@@ -2213,13 +2274,18 @@ class PlotlyRenderer:
                         col=c,
                     )
                 else:
+                    s_key = scen_delta.name
+                    show_s = s_key not in shown_legends
+                    if show_s:
+                        shown_legends.add(s_key)
+
                     fig.add_trace(
                         go.Scatter(
                             x=common_x,
                             y=s_raw,
-                            name=scen_delta.name,
+                            name=s_key,
                             legendgroup=scen_delta.name,
-                            showlegend=(idx == 0),
+                            showlegend=show_s,
                             mode="lines",
                             line=dict(color=scen_col, width=2.2, dash=scen_dash),
                             customdata=custom_scen_raw,
