@@ -84,3 +84,40 @@ def test_resolve_columns_missing_module_handling():
 def test_resolve_columns_invalid_preset():
     with pytest.raises(ValueError, match="Unknown preset"):
         resolve_columns_for_preset(["ColA"], preset="non_existent_preset")
+
+
+def test_custom_vars_extending_standard_preset_and_regex_resilience():
+    mock_headers = [
+        "RufasTime.simulation_day (simulation day)",
+        "RufasTime.calendar_year (calendar year)",
+        "RufasTime.day (julian day)",
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.cow_id (unitless)",
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.estimated_daily_milk_produced (kg/day)",
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.simulation_day (simulation day)",
+        "Special.Module.ragged_var(foo)[bar] (kg)",
+        "Special.Module.simulation_day (simulation day)",
+    ]
+    # Pass a raw string containing unescaped regex special chars: '(' and '['
+    custom_var = "Special.Module.ragged_var(foo)[bar] (kg)"
+    resolved = resolve_columns_for_preset(
+        mock_headers,
+        preset="executive",
+        custom_vars=[custom_var],
+    )
+    # Check top-level time cols
+    assert resolved["global_time_col"] == "RufasTime.simulation_day (simulation day)"
+    assert resolved["calendar_year_col"] == "RufasTime.calendar_year (calendar year)"
+    assert resolved["julian_day_col"] == "RufasTime.day (julian day)"
+
+    # Check that custom variable was resolved
+    matched_panel = None
+    for p_info in resolved["panels"].values():
+        if p_info.get("value_col") == custom_var:
+            matched_panel = p_info
+            break
+    assert matched_panel is not None
+    # Entity-level time column resolved for the custom variable
+    assert matched_panel["time_col"] == "Special.Module.simulation_day (simulation day)"
+    assert "Special.Module.simulation_day (simulation day)" in resolved["required_columns"]
+    assert custom_var in resolved["required_columns"]
+

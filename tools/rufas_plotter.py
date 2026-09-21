@@ -347,6 +347,72 @@ def _find_global_time_column(header_columns: List[str]) -> Optional[str]:
     return None
 
 
+def safe_header_match(pattern: str, col: str) -> bool:
+    """Matches pattern against col, falling back to escaped regex or literal search if invalid regex."""
+    if pattern == col:
+        return True
+    try:
+        return bool(re.search(pattern, col, re.IGNORECASE))
+    except re.error:
+        try:
+            return bool(re.search(re.escape(pattern), col, re.IGNORECASE))
+        except re.error:
+            return pattern.lower() in col.lower()
+
+
+def _resolve_custom_variable(
+    var_pattern: str,
+    header_columns: List[str],
+    global_time_col: Optional[str],
+    resolved_panels: Dict[str, Any],
+    required_cols: List[str],
+) -> None:
+    """Resolves a single custom variable or pattern into resolved_panels and required_cols."""
+    matches = [c for c in header_columns if safe_header_match(var_pattern, c)]
+    if not matches and var_pattern in header_columns:
+        matches = [var_pattern]
+
+    for m in matches:
+        clean_name = m.split(" ")[0].rsplit(".", 1)[-1] if "." in m else m
+        panel_key = clean_name
+        idx = 1
+        while panel_key in resolved_panels:
+            panel_key = f"{clean_name}_{idx}"
+            idx += 1
+
+        time_col = global_time_col
+        prefix = m.rsplit(".", 1)[0] if "." in m else ""
+        entity_col = None
+        if prefix:
+            entity_time = [
+                c for c in header_columns if prefix in c and "simulation_day" in c.lower()
+            ]
+            if entity_time:
+                time_col = entity_time[0]
+            e_found = [
+                c for c in header_columns if prefix in c and ("cow_id" in c.lower() or "animal_id" in c.lower())
+            ]
+            if e_found:
+                entity_col = e_found[0]
+
+        resolved_panels[panel_key] = {
+            "value_col": m,
+            "value_cols": [m],
+            "time_col": time_col,
+            "entity_col": entity_col,
+            "title": m.split(" ")[0],
+            "unit": extract_variable_unit(m),
+            "aggregation": "mean",
+            "available": True,
+        }
+        if m not in required_cols:
+            required_cols.append(m)
+        if time_col and time_col not in required_cols:
+            required_cols.append(time_col)
+        if entity_col and entity_col not in required_cols:
+            required_cols.append(entity_col)
+
+
 def resolve_columns_for_preset(
     header_columns: List[str],
     preset: str = "executive",
@@ -383,14 +449,14 @@ def resolve_columns_for_preset(
     # Calendar year column if present
     calendar_year_col = None
     for c in header_columns:
-        if re.search(r"RufasTime\.calendar_year", c, re.IGNORECASE):
+        if safe_header_match(r"RufasTime\.calendar_year", c):
             calendar_year_col = c
             break
 
     # Julian day column if present
     julian_day_col = None
     for c in header_columns:
-        if re.search(r"RufasTime\.day\b", c, re.IGNORECASE):
+        if safe_header_match(r"RufasTime\.day\b", c):
             julian_day_col = c
             break
 
@@ -410,43 +476,13 @@ def resolve_columns_for_preset(
             raise ValueError("Preset 'custom' requires 'custom_vars' to be specified.")
 
         for var_pattern in custom_vars:
-            matches = [c for c in header_columns if c == var_pattern or re.search(var_pattern, c, re.IGNORECASE)]
-            if not matches and var_pattern in header_columns:
-                matches = [var_pattern]
-
-            for m in matches:
-                # Generate clean panel key
-                clean_name = m.split(" ")[0].rsplit(".", 1)[-1] if "." in m else m
-                panel_key = clean_name
-                idx = 1
-                while panel_key in resolved_panels:
-                    panel_key = f"{clean_name}_{idx}"
-                    idx += 1
-
-                # Check entity-specific time column
-                time_col = global_time_col
-                prefix = m.rsplit(".", 1)[0] if "." in m else ""
-                if prefix:
-                    entity_time = [
-                        c for c in header_columns if prefix in c and "simulation_day" in c.lower()
-                    ]
-                    if entity_time:
-                        time_col = entity_time[0]
-
-                resolved_panels[panel_key] = {
-                    "value_col": m,
-                    "value_cols": [m],
-                    "time_col": time_col,
-                    "entity_col": None,
-                    "title": m.split(" ")[0],
-                    "unit": extract_variable_unit(m),
-                    "aggregation": "mean",
-                    "available": True,
-                }
-                if m not in required_cols:
-                    required_cols.append(m)
-                if time_col and time_col not in required_cols:
-                    required_cols.append(time_col)
+            _resolve_custom_variable(
+                var_pattern=var_pattern,
+                header_columns=header_columns,
+                global_time_col=global_time_col,
+                resolved_panels=resolved_panels,
+                required_cols=required_cols,
+            )
     else:
         # Determine presets to process
         target_preset_names = (
@@ -463,7 +499,7 @@ def resolve_columns_for_preset(
 
                 matched_cols: List[str] = []
                 for pattern in panel_def["patterns"]:
-                    found = [c for c in header_columns if re.search(pattern, c, re.IGNORECASE)]
+                    found = [c for c in header_columns if safe_header_match(pattern, c)]
                     if found:
                         matched_cols = found
                         break
@@ -475,7 +511,7 @@ def resolve_columns_for_preset(
                     time_col = None
                     if "time_pattern" in panel_def:
                         t_found = [
-                            c for c in header_columns if re.search(panel_def["time_pattern"], c, re.IGNORECASE)
+                            c for c in header_columns if safe_header_match(panel_def["time_pattern"], c)
                         ]
                         if t_found:
                             time_col = t_found[0]
@@ -497,7 +533,7 @@ def resolve_columns_for_preset(
                     entity_col = None
                     if "entity_pattern" in panel_def:
                         e_found = [
-                            c for c in header_columns if re.search(panel_def["entity_pattern"], c, re.IGNORECASE)
+                            c for c in header_columns if safe_header_match(panel_def["entity_pattern"], c)
                         ]
                         if e_found:
                             entity_col = e_found[0]
@@ -546,26 +582,13 @@ def resolve_columns_for_preset(
         # If custom_vars also provided to extend preset
         if custom_vars:
             for var_pattern in custom_vars:
-                matches = [c for c in header_columns if c == var_pattern or re.search(var_pattern, c, re.IGNORECASE)]
-                for m in matches:
-                    clean_name = m.split(" ")[0].rsplit(".", 1)[-1] if "." in m else m
-                    panel_key = clean_name
-                    idx = 1
-                    while panel_key in resolved_panels:
-                        panel_key = f"{clean_name}_{idx}"
-                        idx += 1
-                    resolved_panels[panel_key] = {
-                        "value_col": m,
-                        "value_cols": [m],
-                        "time_col": global_time_col,
-                        "entity_col": None,
-                        "title": m.split(" ")[0],
-                        "unit": extract_variable_unit(m),
-                        "aggregation": "mean",
-                        "available": True,
-                    }
-                    if m not in required_cols:
-                        required_cols.append(m)
+                _resolve_custom_variable(
+                    var_pattern=var_pattern,
+                    header_columns=header_columns,
+                    global_time_col=global_time_col,
+                    resolved_panels=resolved_panels,
+                    required_cols=required_cols,
+                )
 
     return {
         "preset": preset,
@@ -573,6 +596,7 @@ def resolve_columns_for_preset(
         "required_columns": list(dict.fromkeys(required_cols)),
         "global_time_col": global_time_col,
         "calendar_year_col": calendar_year_col,
+        "julian_day_col": julian_day_col,
     }
 
 
