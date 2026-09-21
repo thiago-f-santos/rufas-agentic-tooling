@@ -31,7 +31,7 @@
 - Consumes: `tools.rufas_eee_builder.build_minas_gerais_eee_datasets`
 - Produces: Test verification for generated CSV formats, column names, region codes, and value ranges.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `rufas-agentic-tooling/tests/test_eee_builder.py`:
 ```python
@@ -106,12 +106,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python3 -m unittest tests/test_eee_builder.py`  
 Expected: FAIL with `ModuleNotFoundError: No module named 'tools.rufas_eee_builder'`.
 
-- [ ] **Step 3: Commit test file**
+- [x] **Step 3: Commit test file**
 
 ```bash
 git add tests/test_eee_builder.py
@@ -130,7 +130,7 @@ git commit -m "test(eee): add test suite for Minas Gerais EEE dataset builder"
 - Consumes: Spec factors (GFLI v3.0, Embrapa, MCTI) and template headers from `full_feeds_emissions_July2024_interpolated_regional_average.csv`.
 - Produces: `build_minas_gerais_eee_datasets(output_dir: Path) -> Dict[str, Path]`
 
-- [ ] **Step 1: Implement `tools/rufas_eee_builder.py`**
+- [x] **Step 1: Implement `tools/rufas_eee_builder.py`**
 
 Create `rufas-agentic-tooling/tools/rufas_eee_builder.py`:
 ```python
@@ -264,12 +264,12 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `python3 -m unittest tests/test_eee_builder.py`  
 Expected: PASS with 1 test passing.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tools/rufas_eee_builder.py
@@ -286,17 +286,17 @@ git commit -m "feat(eee): implement rufas_eee_builder tool with GFLI, Embrapa, a
 - Create: `RuFaS/input/data/EEE/default_emissions_minas_gerais.csv`
 - Create: `RuFaS/input/data/EEE/default_costs_minas_gerais.csv`
 
-- [ ] **Step 1: Execute generator CLI command**
+- [x] **Step 1: Execute generator CLI command**
 
 Run: `python3 -m tools.rufas_eee_builder --output-dir ../RuFaS/input/data/EEE/`  
 Expected: All 4 files created in `RuFaS/input/data/EEE/`.
 
-- [ ] **Step 2: Verify file existence and non-empty size**
+- [x] **Step 2: Verify file existence and non-empty size**
 
 Run: `ls -la ../RuFaS/input/data/EEE/*minas_gerais.csv`  
 Expected: 4 files listed with sizes > 0.
 
-- [ ] **Step 3: Commit in RuFaS repository**
+- [x] **Step 3: Commit in RuFaS repository**
 
 ```bash
 git -C ../RuFaS add input/data/EEE/*minas_gerais.csv
@@ -311,7 +311,7 @@ git -C ../RuFaS commit -m "feat(eee): add canonical Brazilian EEE datasets for M
 - Modify: `RuFaS/input/metadata/cenario_minas_gerais_metadata.json`
 - Test: `rufas-agentic-tooling/tests/test_cenario_minas_gerais.py`
 
-- [ ] **Step 1: Update `cenario_minas_gerais_metadata.json`**
+- [x] **Step 1: Update `cenario_minas_gerais_metadata.json`**
 
 In `RuFaS/input/metadata/cenario_minas_gerais_metadata.json`, update the 4 EEE blob paths:
 - `"economy"`: `"path": "input/data/EEE/default_costs_minas_gerais.csv"`
@@ -319,17 +319,17 @@ In `RuFaS/input/metadata/cenario_minas_gerais_metadata.json`, update the 4 EEE b
 - `"purchased_feeds_emissions"`: `"path": "input/data/EEE/purchased_feeds_emissions_minas_gerais.csv"`
 - `"purchased_feed_land_use_change_emissions"`: `"path": "input/data/EEE/purchased_feed_land_use_change_emissions_minas_gerais.csv"`
 
-- [ ] **Step 2: Run inspector to verify metadata integrity**
+- [x] **Step 2: Run inspector to verify metadata integrity**
 
 Run: `python3 -m tools.rufas_inspector --scenario ../RuFaS/input/metadata/cenario_minas_gerais_metadata.json`  
 Expected: `Inspection Result: VALID` with 0 errors.
 
-- [ ] **Step 3: Run existing scenario unit tests**
+- [x] **Step 3: Run existing scenario unit tests**
 
 Run: `python3 -m unittest tests/test_cenario_minas_gerais.py`  
 Expected: PASS with all tests passing.
 
-- [ ] **Step 4: Commit in RuFaS repository**
+- [x] **Step 4: Commit in RuFaS repository**
 
 ```bash
 git -C ../RuFaS add input/metadata/cenario_minas_gerais_metadata.json
@@ -344,7 +344,7 @@ git -C ../RuFaS commit -m "feat(metadata): wire regional Minas Gerais EEE datase
 - Create: `rufas-agentic-tooling/tests/test_cenario_minas_gerais_eee.py`
 - Test: Execute simulation and check `output/logs/Minas_Gerais_Pilot_warnings_*.json` and output CSV variables.
 
-- [ ] **Step 1: Create integration test `test_cenario_minas_gerais_eee.py`**
+- [x] **Step 1: Create integration test `test_cenario_minas_gerais_eee.py`**
 
 Create `rufas-agentic-tooling/tests/test_cenario_minas_gerais_eee.py`:
 ```python
@@ -413,12 +413,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run test to execute simulation and verify EEE calculations**
+- [x] **Step 2: Run test to execute simulation and verify EEE calculations**
 
 Run: `python3 -m unittest tests/test_cenario_minas_gerais_eee.py`  
 Expected: PASS with 0 warnings of missing feed emissions and positive Scope 3 emissions verified.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_cenario_minas_gerais_eee.py
