@@ -491,6 +491,49 @@ def test_matplotlib_renderer_memory_safety(tmp_path):
     assert len(plt.get_fignums()) == 0
 
 
+def test_matplotlib_renderer_title_and_none_preset(tmp_path, mocker):
+    import matplotlib.figure
+
+    df = pd.DataFrame({"x": [1.0, 2.0], "x_rolling": [1.0, 1.5]}, index=[0, 1])
+
+    # Case 1: data with preset=None (defensive check) and custom title
+    data_none_preset = AlignedSimulationData(
+        df=df,
+        name="SimNonePreset",
+        preset=None,
+        panels={"x": {"primary": "x", "rolling": "x_rolling", "title": "X", "unit": ""}}
+    )
+
+    spy_suptitle = mocker.spy(matplotlib.figure.Figure, "suptitle")
+    renderer = MatplotlibRenderer()
+    out1 = tmp_path / "custom_title.png"
+    renderer.render(data_none_preset, out1, title="Custom Dashboard Title")
+
+    assert out1.exists()
+    assert spy_suptitle.call_count >= 1
+    call_args = spy_suptitle.call_args[0]
+    assert call_args[1] == "Custom Dashboard Title"
+
+    # Case 2: default preset title when title is None and preset is 'animal'
+    data_animal = AlignedSimulationData(
+        df=df,
+        name="DairyFarm",
+        preset="animal",
+        panels={"x": {"primary": "x", "rolling": "x_rolling", "title": "X", "unit": ""}}
+    )
+    spy_suptitle.reset_mock()
+    out2 = tmp_path / "default_title.png"
+    renderer.render(data_animal, out2)
+
+    assert out2.exists()
+    assert spy_suptitle.call_count >= 1
+    call_args2 = spy_suptitle.call_args[0]
+    assert "DairyFarm" in call_args2[1]
+    assert "Animal" in call_args2[1]
+
+
+
+
 
 
 

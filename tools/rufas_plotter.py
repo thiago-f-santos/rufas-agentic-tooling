@@ -1477,7 +1477,8 @@ class MatplotlibRenderer:
                 )
 
             # Main figure title
-            preset_title = PRESET_DEFINITIONS.get(data.preset, {}).get("title", data.preset.title())
+            preset_str = data.preset or "custom"
+            preset_title = PRESET_DEFINITIONS.get(preset_str, {}).get("title", preset_str.title())
             if title:
                 overall_title = title
             elif comparison is not None:
@@ -1486,12 +1487,15 @@ class MatplotlibRenderer:
             else:
                 overall_title = f"RuFaS Simulation: {data.name} — {preset_title}"
 
+            fig.suptitle(overall_title, fontsize=13, fontweight="bold", y=0.98)
+
             top_margin = 0.94 if nrows > 1 else 0.90
             bottom_margin = 0.08 if nrows > 1 else 0.12
             left_margin = 0.08 if ncols > 1 else 0.12
             right_margin = 0.96
             fig.subplots_adjust(top=top_margin, bottom=bottom_margin, left=left_margin, right=right_margin)
             fig.savefig(str(out_file), dpi=dpi, bbox_inches="tight")
+
 
         finally:
             plt.close(fig)
