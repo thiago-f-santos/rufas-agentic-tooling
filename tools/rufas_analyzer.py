@@ -258,8 +258,15 @@ def validate_analyzer_targets(
     return assert_within_rufas_scope(out_p, rufas_root=rufas_root, allow_external=allow_external)
 
 
-def main() -> None:
+def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parses CLI arguments for rufas-analyze."""
     parser = argparse.ArgumentParser(description="RuFaS Output Analyzer: Summarize simulation CSVs and emissions.")
+    parser.add_argument(
+        "output_dir_pos",
+        nargs="?",
+        default=None,
+        help="Path to RuFaS output directory (positional fallback)",
+    )
     parser.add_argument(
         "--output-dir",
         "-o",
@@ -279,7 +286,20 @@ def main() -> None:
         default=False,
         help="Allow reading output directories outside authorized RuFaS repository boundaries",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        default=False,
+        help="Gera automaticamente painéis gráficos da simulação.",
+    )
+    args = parser.parse_args(argv)
+    if not args.output_dir and args.output_dir_pos:
+        args.output_dir = args.output_dir_pos
+    return args
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    args = parse_arguments(argv)
 
     try:
         rufas_root = get_rufas_root(cli_arg=args.rufas_root, require_valid=False)
@@ -295,6 +315,30 @@ def main() -> None:
     summary = summarize_output_directory(out_path)
     print_markdown_report(summary)
 
+    if args.plot:
+        from tools.rufas_plotter import generate_plots
+
+        print("\n📊 Generating executive simulation plots...")
+        try:
+            target_plots_dir = out_path / "plots"
+            plot_result = generate_plots(
+                input_path=out_path,
+                output_dir=target_plots_dir,
+                preset="executive",
+                output_format="both",
+                allow_external=args.allow_external,
+            )
+            print(f"✅ Plots generated successfully in: {target_plots_dir}")
+            if plot_result.get("artifacts", {}).get("png"):
+                for p in plot_result["artifacts"]["png"]:
+                    print(f"  - PNG: {p}")
+            if plot_result.get("artifacts", {}).get("html"):
+                for p in plot_result["artifacts"]["html"]:
+                    print(f"  - HTML: {p}")
+        except Exception as e:
+            print(f"⚠️ Could not generate plots: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()
+
