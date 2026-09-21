@@ -667,16 +667,7 @@ class TemporalAligner:
         allow_external: bool = False,
     ):
         self.raw_path = Path(csv_path)
-        if allow_external:
-            self.csv_path = self.raw_path.resolve()
-        else:
-            try:
-                self.csv_path = assert_within_rufas_scope(self.raw_path, allow_external=False)
-            except RuFaSBoundaryError:
-                if "pytest" in sys.modules:
-                    self.csv_path = self.raw_path.resolve()
-                else:
-                    raise
+        self.csv_path = assert_within_rufas_scope(self.raw_path, allow_external=allow_external)
 
         if not self.csv_path.exists():
             raise FileNotFoundError(f"Simulation output CSV not found: {self.csv_path}")
@@ -731,6 +722,17 @@ class TemporalAligner:
 
         # 3. Read ONLY required columns
         raw_df = pd.read_csv(self.csv_path, usecols=required_cols, low_memory=False)
+
+        if len(raw_df) == 0:
+            empty_df = pd.DataFrame(index=pd.RangeIndex(0, 0))
+            empty_df.index.name = "simulation_day"
+            return AlignedSimulationData(
+                df=empty_df,
+                name=self.name,
+                preset=self.preset,
+                units={},
+                panels=resolved["panels"],
+            )
 
         # 4. Determine timeline span (simulation_day continuous range)
         all_sim_days: List[pd.Series] = []
@@ -967,6 +969,8 @@ class RaggedTimeSeriesLoader:
             allow_external=allow_external,
         )
         return aligner.align(rolling_window=rolling_window)
+
+    load_aligned_series = load_aligned_dataframe
 
 
 def main():

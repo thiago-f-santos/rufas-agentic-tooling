@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from tools.config import RuFaSBoundaryError
 from tools.rufas_plotter import (
     AlignedSimulationData,
     PresetRegistry,
@@ -143,7 +144,7 @@ def test_temporal_aligner_ragged_data(tmp_path):
     }
     pd.DataFrame(data).to_csv(csv_file, index=False)
 
-    aligner = TemporalAligner(csv_file, preset="executive")
+    aligner = TemporalAligner(csv_file, preset="executive", allow_external=True)
     aligned = aligner.align(rolling_window=2)
     df = aligned.df
 
@@ -174,6 +175,7 @@ def test_ragged_time_series_loader(tmp_path):
         csv_path=csv_file,
         preset="field-crops",
         rolling_window=2,
+        allow_external=True,
     )
     assert isinstance(aligned, AlignedSimulationData)
     assert len(aligned.df) == 2
@@ -183,5 +185,29 @@ def test_ragged_time_series_loader(tmp_path):
     assert aligned.calendar_years.iloc[0] == 2026.0
     assert aligned.julian_days is not None
     assert aligned.julian_days.iloc[1] == 101.0
+
+
+def test_temporal_aligner_boundary_violation(tmp_path):
+    csv_file = tmp_path / "outside.csv"
+    csv_file.write_text("RufasTime.simulation_day (simulation day)\n0.0\n", encoding="utf-8")
+    with pytest.raises(RuFaSBoundaryError):
+        TemporalAligner(csv_file, allow_external=False)
+
+
+def test_temporal_aligner_empty_csv(tmp_path):
+    csv_file = tmp_path / "empty_sim.csv"
+    pd.DataFrame(
+        columns=[
+            "RufasTime.simulation_day (simulation day)",
+            "FieldDataReporter.send_field_daily_variables.transpiration.field='field_1' (mm)",
+        ]
+    ).to_csv(csv_file, index=False)
+
+    aligner = TemporalAligner(csv_file, preset="executive", allow_external=True)
+    aligned = aligner.align()
+    assert len(aligned.df) == 0
+    assert list(aligned.df.index) == []
+    assert isinstance(aligned.df.index, pd.RangeIndex)
+
 
 
