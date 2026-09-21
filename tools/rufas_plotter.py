@@ -21,6 +21,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 from tools.config import (
     RuFaSBoundaryError,
     RuFaSConfigError,
@@ -31,6 +34,7 @@ from tools.config import (
 __all__ = [
     "AlignedSimulationData",
     "MatplotlibRenderer",
+    "PlotlyRenderer",
     "PresetRegistry",
     "PRESET_DEFINITIONS",
     "RaggedTimeSeriesLoader",
@@ -1654,6 +1658,576 @@ class MatplotlibRenderer:
             if len(common_x) > 0:
                 ax_main.set_xlim(left=0, right=max(1, int(common_x.max())))
                 ax_delta.set_xlim(left=0, right=max(1, int(common_x.max())))
+
+
+class PlotlyRenderer:
+    """
+    Interactive multi-panel dashboard renderer using Plotly.
+    Generates standalone HTML dashboards with synchronized time-series subplots,
+    shared zooming/panning across panels (shared_xaxes=True), range slider timeline navigation,
+    rich hovertemplates with calendar dates and units, and scenario comparison overlays.
+    """
+
+    DEFAULT_PALETTE = [
+        "#1f77b4",  # Blue
+        "#2ca02c",  # Green
+        "#d62728",  # Red
+        "#9467bd",  # Purple
+        "#ff7f0e",  # Orange
+        "#8c564b",  # Brown
+        "#17becf",  # Teal
+        "#bcbd22",  # Yellow-green
+    ]
+
+    SEMANTIC_PANEL_COLORS = {
+        "milk_produced": "#1f77b4",
+        "milk": "#1f77b4",
+        "milk_solids": "#17becf",
+        "days_in_milk": "#3366cc",
+        "herd_dynamics": "#9467bd",
+        "methane_emission": "#d62728",
+        "methane": "#d62728",
+        "carbon_intensity": "#ff7f0e",
+        "energy_consumption": "#bcbd22",
+        "manure_excretion": "#8c564b",
+        "manure_nutrients": "#a05d56",
+        "storage_gas_loss": "#d62728",
+        "manure_applied": "#8c564b",
+        "applied_manure": "#8c564b",
+        "feed_cost": "#e377c2",
+        "transpiration": "#2ca02c",
+        "transp": "#2ca02c",
+        "soil_emissions": "#ff7f0e",
+        "soil_water": "#1f77b4",
+    }
+
+    SCENARIO_COLORS = ["#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
+    SCENARIO_DASH = ["dash", "dot", "dashdot", "longdash"]
+
+    def __init__(self, template: str = "plotly_white"):
+        self.template = template
+
+    def _determine_grid(self, preset: Optional[str], n_panels: int) -> tuple[int, int]:
+        """Calculates (nrows, ncols) grid based on preset and number of panels."""
+        norm_preset = (preset or "custom").strip().lower().replace("_", "-")
+        if norm_preset == "executive":
+            if n_panels <= 6:
+                return (3, 2)
+            ncols = 2
+            return ((n_panels + ncols - 1) // ncols, ncols)
+        elif norm_preset in ("animal", "eee", "field-crops", "manure"):
+            if n_panels <= 4:
+                return (2, 2)
+            ncols = 2
+            return ((n_panels + ncols - 1) // ncols, ncols)
+        else:
+            if n_panels <= 1:
+                return (1, 1)
+            elif n_panels == 2:
+                return (1, 2)
+            elif n_panels <= 4:
+                return (2, 2)
+            elif n_panels <= 6:
+                return (3, 2)
+            else:
+                ncols = 2
+                return ((n_panels + ncols - 1) // ncols, ncols)
+
+    def _get_panel_color(self, panel_key: str, index: int) -> str:
+        """Determines semantic color for a panel key, falling back to palette."""
+        clean_key = panel_key.lower().strip()
+        for k, col in self.SEMANTIC_PANEL_COLORS.items():
+            if k in clean_key:
+                return col
+        return self.DEFAULT_PALETTE[index % len(self.DEFAULT_PALETTE)]
+
+    def _build_hover_config(
+        self,
+        data: AlignedSimulationData,
+        unit: str,
+        x_index: Optional[pd.Index] = None,
+        pct_deltas: Optional[pd.Series] = None,
+    ) -> tuple[Optional[np.ndarray], str]:
+        """
+        Builds customdata matrix and hovertemplate for a trace.
+        """
+        cal_s = (
+            data.calendar_years.reindex(x_index)
+            if (data.calendar_years is not None and x_index is not None)
+            else data.calendar_years
+        )
+        jul_s = (
+            data.julian_days.reindex(x_index)
+            if (data.julian_days is not None and x_index is not None)
+            else data.julian_days
+        )
+        pct_s = (
+            pct_deltas.reindex(x_index)
+            if (pct_deltas is not None and x_index is not None)
+            else pct_deltas
+        )
+
+        has_years = cal_s is not None
+        has_days = jul_s is not None
+        has_pct = pct_s is not None
+
+        unit_str = f" {unit}" if unit else ""
+
+        if has_years and has_days:
+            years = cal_s.values
+            days = jul_s.values
+            if has_pct:
+                custom = np.column_stack([years, days, pct_s.fillna(0.0).values])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    "Calendar: Year %{customdata[0]:.0f}, Day %{customdata[1]:.0f}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<br>"
+                    "Δ: %{customdata[2]:+.1f}%<extra></extra>"
+                )
+            else:
+                custom = np.column_stack([years, days])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    "Calendar: Year %{customdata[0]:.0f}, Day %{customdata[1]:.0f}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<extra></extra>"
+                )
+        elif has_years:
+            years = cal_s.values
+            if has_pct:
+                custom = np.column_stack([years, pct_s.fillna(0.0).values])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    "Calendar: Year %{customdata[0]:.0f}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<br>"
+                    "Δ: %{customdata[1]:+.1f}%<extra></extra>"
+                )
+            else:
+                custom = np.column_stack([years])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    "Calendar: Year %{customdata[0]:.0f}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<extra></extra>"
+                )
+        else:
+            if has_pct:
+                custom = np.column_stack([pct_s.fillna(0.0).values])
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<br>"
+                    "Δ: %{customdata[0]:+.1f}%<extra></extra>"
+                )
+            else:
+                custom = None
+                template = (
+                    "<b>%{fullData.name}</b><br>"
+                    "Simulation Day: %{x}<br>"
+                    f"Value: %{{y:.2f}}{unit_str}<extra></extra>"
+                )
+
+        return custom, template
+
+    def render(
+        self,
+        data: AlignedSimulationData,
+        output_path: Union[str, Path],
+        comparison: Optional[ScenarioComparisonResult] = None,
+        title: Optional[str] = None,
+    ) -> Path:
+        """
+        Renders interactive multi-panel dashboard to standalone HTML.
+
+        Parameters
+        ----------
+        data : AlignedSimulationData
+            Aligned simulation dataset.
+        output_path : Union[str, Path]
+            Destination file path (.html).
+        comparison : Optional[ScenarioComparisonResult]
+            Scenario comparison result with baseline, scenarios, and percentage deltas.
+        title : Optional[str]
+            Custom figure title.
+
+        Returns
+        -------
+        Path
+            Path to the saved standalone HTML file.
+        """
+        out_file = Path(output_path)
+        if out_file.suffix.lower() != ".html":
+            out_file = out_file.with_suffix(".html")
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Prepare panels
+        panels_dict = dict(data.panels) if data.panels else {}
+        if not panels_dict and len(data.df.columns) > 0:
+            for col in data.df.columns:
+                if not col.endswith("_rolling") and not col.endswith("_mean"):
+                    panels_dict[col] = {
+                        "primary": col,
+                        "rolling": f"{col}_rolling" if f"{col}_rolling" in data.df.columns else None,
+                        "title": col.replace("_", " ").title(),
+                        "unit": data.units.get(col, ""),
+                        "available": True,
+                    }
+
+        panels_list = list(panels_dict.items())
+        n_panels = max(1, len(panels_list))
+        nrows, ncols = self._determine_grid(data.preset, n_panels)
+
+        # Build subplot titles
+        subplot_titles = []
+        for idx in range(nrows * ncols):
+            if idx < len(panels_list):
+                _, p_info = panels_list[idx]
+                subplot_titles.append(p_info.get("title", f"Panel {idx+1}"))
+            else:
+                subplot_titles.append("")
+
+        fig = make_subplots(
+            rows=nrows,
+            cols=ncols,
+            shared_xaxes=True,
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.08,
+            horizontal_spacing=0.08,
+        )
+
+        if comparison is not None:
+            self._render_comparison(
+                fig=fig,
+                comparison=comparison,
+                panels_list=panels_list,
+                nrows=nrows,
+                ncols=ncols,
+            )
+        else:
+            self._render_single(
+                fig=fig,
+                data=data,
+                panels_list=panels_list,
+                nrows=nrows,
+                ncols=ncols,
+            )
+
+        # Synchronize all x-axes
+        fig.update_xaxes(matches="x")
+
+        # Range slider on the bottom axis for timeline navigation
+        fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.04), row=nrows, col=1)
+
+        # Axis styling and labels
+        for idx, (p_key, p_info) in enumerate(panels_list):
+            r = idx // ncols + 1
+            c = idx % ncols + 1
+            unit = p_info.get("unit") or data.units.get(p_info.get("primary", ""), "")
+            if unit and p_info.get("available", True):
+                fig.update_yaxes(title_text=unit, row=r, col=c)
+
+        for c in range(1, ncols + 1):
+            fig.update_xaxes(title_text="Simulation Day", row=nrows, col=c)
+
+        # Hide extra empty subplots
+        for extra_idx in range(len(panels_list), nrows * ncols):
+            er = extra_idx // ncols + 1
+            ec = extra_idx % ncols + 1
+            fig.update_xaxes(visible=False, row=er, col=ec)
+            fig.update_yaxes(visible=False, row=er, col=ec)
+
+        # Overall dashboard title
+        preset_str = data.preset or "custom"
+        preset_title = PRESET_DEFINITIONS.get(preset_str, {}).get("title", preset_str.title())
+        if title:
+            overall_title = title
+        elif comparison is not None:
+            scen_names = ", ".join(comparison.get_names())
+            overall_title = f"RuFaS Scenario Comparison: {comparison.baseline.name} vs {scen_names} ({preset_title})"
+        else:
+            overall_title = f"RuFaS Simulation: {data.name} — {preset_title}"
+
+        fig_height = max(550, nrows * 360)
+        fig.update_layout(
+            title=dict(
+                text=overall_title,
+                font=dict(size=16, family="sans-serif", color="#111111"),
+                x=0.5,
+                xanchor="center",
+            ),
+            template=self.template,
+            hovermode="x",
+            height=fig_height,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1.0,
+                font=dict(size=10),
+            ),
+            margin=dict(l=60, r=40, t=80, b=60),
+        )
+
+        fig.write_html(str(out_file), include_plotlyjs=True, full_html=True)
+        return out_file
+
+    def _render_single(
+        self,
+        fig: Any,
+        data: AlignedSimulationData,
+        panels_list: List[tuple[str, Dict[str, Any]]],
+        nrows: int,
+        ncols: int,
+    ) -> None:
+        for idx, (panel_key, panel_info) in enumerate(panels_list):
+            r = idx // ncols + 1
+            c = idx % ncols + 1
+            color = self._get_panel_color(panel_key, idx)
+            unit = panel_info.get("unit") or data.units.get(panel_info.get("primary", ""), "")
+            is_avail = panel_info.get("available", True)
+            primary_col = panel_info.get("primary")
+            rolling_col = panel_info.get("rolling")
+
+            if not is_avail or not primary_col or primary_col not in data.df.columns or len(data.df) == 0:
+                reason = panel_info.get("missing_reason") or f"Module '{panel_key}' not configured in simulation"
+                fig.add_annotation(
+                    text=f"<i>{reason}</i>",
+                    showarrow=False,
+                    font=dict(size=11, color="#888888"),
+                    row=r,
+                    col=c,
+                )
+                fig.update_xaxes(showticklabels=False, showgrid=False, row=r, col=c)
+                fig.update_yaxes(showticklabels=False, showgrid=False, row=r, col=c)
+                continue
+
+            x = data.df.index
+            y_raw = data.df[primary_col]
+            has_rolling = bool(rolling_col and rolling_col in data.df.columns)
+            custom, template = self._build_hover_config(data, unit, x_index=x)
+
+            if has_rolling:
+                y_roll = data.df[rolling_col]
+                # Daily trace (semitransparent)
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y_raw,
+                        name="Daily",
+                        legendgroup="Daily",
+                        showlegend=(idx == 0),
+                        mode="lines",
+                        line=dict(color=color, width=1.0),
+                        opacity=0.35,
+                        customdata=custom,
+                        hovertemplate=template,
+                    ),
+                    row=r,
+                    col=c,
+                )
+                # Rolling trace (solid)
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y_roll,
+                        name="Rolling Avg",
+                        legendgroup="Rolling Avg",
+                        showlegend=(idx == 0),
+                        mode="lines",
+                        line=dict(color=color, width=2.5),
+                        customdata=custom,
+                        hovertemplate=template,
+                    ),
+                    row=r,
+                    col=c,
+                )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y_raw,
+                        name="Daily",
+                        legendgroup="Daily",
+                        showlegend=(idx == 0),
+                        mode="lines",
+                        line=dict(color=color, width=2.2),
+                        customdata=custom,
+                        hovertemplate=template,
+                    ),
+                    row=r,
+                    col=c,
+                )
+
+    def _render_comparison(
+        self,
+        fig: Any,
+        comparison: ScenarioComparisonResult,
+        panels_list: List[tuple[str, Dict[str, Any]]],
+        nrows: int,
+        ncols: int,
+    ) -> None:
+        common_x = comparison.common_index
+        base_data = comparison.baseline
+
+        for idx, (panel_key, panel_info) in enumerate(panels_list):
+            r = idx // ncols + 1
+            c = idx % ncols + 1
+            base_color = self._get_panel_color(panel_key, idx)
+            unit = panel_info.get("unit") or base_data.units.get(panel_info.get("primary", ""), "")
+            is_avail = panel_info.get("available", True)
+            primary_col = panel_info.get("primary")
+            rolling_col = panel_info.get("rolling")
+
+            if not is_avail or not primary_col or primary_col not in base_data.df.columns or len(common_x) == 0:
+                reason = panel_info.get("missing_reason") or f"Module '{panel_key}' not configured in simulation"
+                fig.add_annotation(
+                    text=f"<i>{reason}</i>",
+                    showarrow=False,
+                    font=dict(size=11, color="#888888"),
+                    row=r,
+                    col=c,
+                )
+                fig.update_xaxes(showticklabels=False, showgrid=False, row=r, col=c)
+                fig.update_yaxes(showticklabels=False, showgrid=False, row=r, col=c)
+                continue
+
+            # 1. Plot Baseline
+            b_raw = base_data.df.loc[common_x, primary_col]
+            has_b_roll = bool(rolling_col and rolling_col in base_data.df.columns)
+            custom_base, template_base = self._build_hover_config(base_data, unit, x_index=common_x)
+
+            if has_b_roll:
+                b_roll = base_data.df.loc[common_x, rolling_col]
+                fig.add_trace(
+                    go.Scatter(
+                        x=common_x,
+                        y=b_raw,
+                        name=f"{base_data.name} (Daily)",
+                        legendgroup=base_data.name,
+                        showlegend=(idx == 0),
+                        mode="lines",
+                        line=dict(color=base_color, width=1.0),
+                        opacity=0.25,
+                        customdata=custom_base,
+                        hovertemplate=template_base,
+                    ),
+                    row=r,
+                    col=c,
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=common_x,
+                        y=b_roll,
+                        name=f"{base_data.name} (Base)",
+                        legendgroup=base_data.name,
+                        showlegend=(idx == 0),
+                        mode="lines",
+                        line=dict(color=base_color, width=2.5),
+                        customdata=custom_base,
+                        hovertemplate=template_base,
+                    ),
+                    row=r,
+                    col=c,
+                )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=common_x,
+                        y=b_raw,
+                        name=f"{base_data.name} (Base)",
+                        legendgroup=base_data.name,
+                        showlegend=(idx == 0),
+                        mode="lines",
+                        line=dict(color=base_color, width=2.2),
+                        customdata=custom_base,
+                        hovertemplate=template_base,
+                    ),
+                    row=r,
+                    col=c,
+                )
+
+            # 2. Plot Scenarios
+            for s_idx, scen_delta in enumerate(comparison.scenarios):
+                scen_col = self.SCENARIO_COLORS[s_idx % len(self.SCENARIO_COLORS)]
+                scen_dash = self.SCENARIO_DASH[s_idx % len(self.SCENARIO_DASH)]
+                s_df = scen_delta.data.df
+
+                if primary_col not in s_df.columns:
+                    continue
+
+                s_raw = s_df.loc[common_x, primary_col]
+                has_s_roll = bool(rolling_col and rolling_col in s_df.columns)
+
+                pct_series = (
+                    scen_delta.pct_deltas.loc[common_x, primary_col]
+                    if primary_col in scen_delta.pct_deltas.columns
+                    else None
+                )
+                pct_roll_series = (
+                    scen_delta.pct_deltas.loc[common_x, rolling_col]
+                    if (rolling_col and rolling_col in scen_delta.pct_deltas.columns)
+                    else pct_series
+                )
+
+                custom_scen_raw, template_scen_raw = self._build_hover_config(
+                    scen_delta.data, unit, x_index=common_x, pct_deltas=pct_series
+                )
+                custom_scen_roll, template_scen_roll = self._build_hover_config(
+                    scen_delta.data, unit, x_index=common_x, pct_deltas=pct_roll_series
+                )
+
+                if has_s_roll:
+                    s_roll = s_df.loc[common_x, rolling_col]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=common_x,
+                            y=s_raw,
+                            name=f"{scen_delta.name} (Daily)",
+                            legendgroup=scen_delta.name,
+                            showlegend=(idx == 0),
+                            mode="lines",
+                            line=dict(color=scen_col, width=1.0, dash=scen_dash),
+                            opacity=0.25,
+                            customdata=custom_scen_raw,
+                            hovertemplate=template_scen_raw,
+                        ),
+                        row=r,
+                        col=c,
+                    )
+                    fig.add_trace(
+                        go.Scatter(
+                            x=common_x,
+                            y=s_roll,
+                            name=scen_delta.name,
+                            legendgroup=scen_delta.name,
+                            showlegend=(idx == 0),
+                            mode="lines",
+                            line=dict(color=scen_col, width=2.2, dash=scen_dash),
+                            customdata=custom_scen_roll,
+                            hovertemplate=template_scen_roll,
+                        ),
+                        row=r,
+                        col=c,
+                    )
+                else:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=common_x,
+                            y=s_raw,
+                            name=scen_delta.name,
+                            legendgroup=scen_delta.name,
+                            showlegend=(idx == 0),
+                            mode="lines",
+                            line=dict(color=scen_col, width=2.2, dash=scen_dash),
+                            customdata=custom_scen_raw,
+                            hovertemplate=template_scen_raw,
+                        ),
+                        row=r,
+                        col=c,
+                    )
 
 
 def main():

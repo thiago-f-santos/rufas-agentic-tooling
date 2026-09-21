@@ -5,6 +5,7 @@ from tools.config import RuFaSBoundaryError
 from tools.rufas_plotter import (
     AlignedSimulationData,
     MatplotlibRenderer,
+    PlotlyRenderer,
     PresetRegistry,
     RaggedTimeSeriesLoader,
     ScenarioComparator,
@@ -530,6 +531,163 @@ def test_matplotlib_renderer_title_and_none_preset(tmp_path, mocker):
     call_args2 = spy_suptitle.call_args[0]
     assert "DairyFarm" in call_args2[1]
     assert "Animal" in call_args2[1]
+
+
+def test_plotly_renderer_creates_standalone_html(tmp_path):
+    df = pd.DataFrame({
+        "milk_produced_total": [100.0, 105.0, 110.0, 108.0],
+        "milk_produced_total_rolling": [100.0, 102.5, 105.0, 105.75],
+    }, index=[0, 1, 2, 3])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="TestSim",
+        preset="executive",
+        units={"milk_produced_total": "kg/day"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day"}
+        }
+    )
+
+    out_file = tmp_path / "interactive_dashboard.html"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(data, out_file)
+
+    assert saved_path.exists()
+    assert saved_path.stat().st_size > 1000
+    content = saved_path.read_text(encoding="utf-8")
+    assert "<html" in content.lower()
+    assert "plotly" in content.lower()
+    assert "Milk Yield" in content
+
+
+def test_plotly_renderer_with_scenario_comparison(tmp_path):
+    df_base = pd.DataFrame({
+        "milk_produced_total": [100.0, 105.0, 110.0],
+        "milk_produced_total_rolling": [100.0, 102.5, 105.0],
+        "methane": [50.0, 48.0, 49.0],
+        "methane_rolling": [50.0, 49.0, 49.0],
+    }, index=[0, 1, 2])
+
+    df_scen = pd.DataFrame({
+        "milk_produced_total": [102.0, 108.0, 115.0],
+        "milk_produced_total_rolling": [102.0, 105.0, 108.3],
+        "methane": [45.0, 42.0, 40.0],
+        "methane_rolling": [45.0, 43.5, 42.3],
+    }, index=[0, 1, 2])
+
+    base = AlignedSimulationData(
+        df=df_base,
+        name="Baseline",
+        preset="executive",
+        units={"milk_produced_total": "kg/day", "methane": "g"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day"},
+            "methane": {"primary": "methane", "rolling": "methane_rolling", "title": "Methane", "unit": "g"}
+        }
+    )
+
+    scen = AlignedSimulationData(
+        df=df_scen,
+        name="Additive Diet",
+        preset="executive",
+        units={"milk_produced_total": "kg/day", "methane": "g"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day"},
+            "methane": {"primary": "methane", "rolling": "methane_rolling", "title": "Methane", "unit": "g"}
+        }
+    )
+
+    comparator = ScenarioComparator(base, scen)
+    comp_result = comparator.compute_deltas()
+
+    out_file = tmp_path / "comparison_dashboard.html"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(base, out_file, comparison=comp_result)
+
+    assert saved_path.exists()
+    assert saved_path.stat().st_size > 1000
+    content = saved_path.read_text(encoding="utf-8")
+    assert "<html" in content.lower()
+    assert "plotly" in content.lower()
+    assert "Baseline" in content
+    assert "Additive Diet" in content
+
+
+def test_plotly_renderer_missing_module_handling(tmp_path):
+    df = pd.DataFrame({
+        "milk_produced_total": [100.0, 105.0],
+        "milk_produced_total_rolling": [100.0, 102.5],
+    }, index=[0, 1])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="SimWithMissing",
+        preset="executive",
+        units={"milk_produced_total": "kg/day"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day", "available": True},
+            "field": {"primary": None, "rolling": None, "title": "Field Crops", "available": False, "missing_reason": "Module 'field' not configured in this simulation"}
+        }
+    )
+
+    out_file = tmp_path / "missing_module_dashboard.html"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(data, out_file)
+
+    assert saved_path.exists()
+    content = saved_path.read_text(encoding="utf-8")
+    assert "<html" in content.lower()
+    assert "Module &#39;field&#39; not configured in this simulation" in content or "Module 'field' not configured in this simulation" in content
+
+
+def test_plotly_renderer_calendar_hover_and_custom_title(tmp_path):
+    df = pd.DataFrame({
+        "var_a": [10.0, 20.0, 30.0],
+    }, index=[0, 1, 2])
+
+    cal_years = pd.Series([2026, 2026, 2026], index=[0, 1, 2])
+    jul_days = pd.Series([100, 101, 102], index=[0, 1, 2])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="CalendarSim",
+        preset="custom",
+        units={"var_a": "kg"},
+        panels={
+            "metric_a": {"primary": "var_a", "rolling": None, "title": "Metric A", "unit": "kg", "available": True}
+        },
+        calendar_years=cal_years,
+        julian_days=jul_days,
+    )
+
+    out_file = tmp_path / "custom_title_dashboard.html"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(data, out_file, title="Special Custom Dashboard Title")
+
+    assert saved_path.exists()
+    content = saved_path.read_text(encoding="utf-8")
+    assert "Special Custom Dashboard Title" in content
+    # Check calendar hover info is embedded
+    assert "2026" in content
+    assert "100" in content
+
+
+def test_plotly_renderer_suffix_handling(tmp_path):
+    df = pd.DataFrame({"v": [1.0, 2.0]}, index=[0, 1])
+    data = AlignedSimulationData(
+        df=df,
+        name="NoSuffixSim",
+        panels={"p": {"primary": "v", "title": "V", "unit": ""}}
+    )
+    # Give path without .html extension
+    out_file = tmp_path / "dashboard_without_ext"
+    renderer = PlotlyRenderer()
+    saved_path = renderer.render(data, out_file)
+
+    assert saved_path.name == "dashboard_without_ext.html"
+    assert saved_path.exists()
+
 
 
 
