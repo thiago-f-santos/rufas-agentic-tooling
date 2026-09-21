@@ -982,6 +982,120 @@ def test_cli_execution_failure(tmp_path, capsys, monkeypatch):
     assert "error" in captured.err.lower() or "not found" in captured.err.lower()
 
 
+def test_scenario_comparator_compare_with_tuple():
+    df_base = pd.DataFrame({"val": [100.0, 200.0]}, index=[0, 1])
+    df_s1 = pd.DataFrame({"val": [110.0, 220.0]}, index=[0, 1])
+    df_s2 = pd.DataFrame({"val": [90.0, 180.0]}, index=[0, 1])
+
+    base = AlignedSimulationData(df=df_base, name="Base")
+    s1 = AlignedSimulationData(df=df_s1, name="Plus10")
+    s2 = AlignedSimulationData(df=df_s2, name="Minus10")
+
+    result = ScenarioComparator.compare(base, (s1, s2))
+    assert len(result.scenarios) == 2
+    assert result.scenarios[0].name == "Plus10"
+    assert result.scenarios[1].name == "Minus10"
+    assert result.scenarios[0].pct_deltas["val"].tolist() == [10.0, 10.0]
+    assert result.scenarios[1].pct_deltas["val"].tolist() == [-10.0, -10.0]
+
+    comp = ScenarioComparator(base)
+    result_inst = comp.compare(base, (s1, s2))
+    assert len(result_inst.scenarios) == 2
+    assert result_inst.scenarios[0].name == "Plus10"
+    assert result_inst.scenarios[1].name == "Minus10"
+
+
+def test_scenario_comparator_duplicate_scenario_names_disambiguation():
+    df_base = pd.DataFrame({"val": [100.0, 200.0]}, index=[0, 1])
+    df_s1 = pd.DataFrame({"val": [110.0, 220.0]}, index=[0, 1])
+    df_s2 = pd.DataFrame({"val": [90.0, 180.0]}, index=[0, 1])
+
+    base = AlignedSimulationData(df=df_base, name="Base")
+    s1 = AlignedSimulationData(df=df_s1, name="ScenarioA")
+    s2 = AlignedSimulationData(df=df_s2, name="ScenarioA")
+
+    comp = ScenarioComparator(base, [s1, s2])
+    result = comp.compute_deltas()
+
+    summary = comp.get_kpi_summary()
+    assert len(summary) == 2
+    assert "ScenarioA_1" in summary
+    assert "ScenarioA_2" in summary
+    assert len(result.scenarios) == 2
+    assert result.scenarios[0].name == "ScenarioA_1"
+    assert result.scenarios[1].name == "ScenarioA_2"
+
+    assert summary["ScenarioA_1"]["val"]["mean_delta_pct"] == 10.0
+    assert summary["ScenarioA_2"]["val"]["mean_delta_pct"] == -10.0
+
+    assert result.get_names() == ["ScenarioA_1", "ScenarioA_2"]
+    assert result.get_scenario("ScenarioA_1") is not None
+    assert result.get_scenario("ScenarioA_2") is not None
+
+    overlay = comp.get_overlay_series("val")
+    assert "Base" in overlay
+    assert "ScenarioA_1" in overlay
+    assert "ScenarioA_2" in overlay
+    assert overlay["ScenarioA_1"].tolist() == [110.0, 220.0]
+    assert overlay["ScenarioA_2"].tolist() == [90.0, 180.0]
+
+
+def test_generate_plots_compare_paths_normalization(tmp_path):
+    base_csv = tmp_path / "base.csv"
+    scen_csv = tmp_path / "scen.csv"
+
+    data = {
+        "RufasTime.simulation_day (simulation day)": [0.0, 1.0],
+        "RufasTime.calendar_year (calendar year)": [2026.0, 2026.0],
+        "RufasTime.day (julian day)": [10.0, 11.0],
+        "AnimalModuleReporter.report_milk.milk_data_at_milk_update.estimated_daily_milk_produced (kg/day)": [30.0, 31.0],
+    }
+    pd.DataFrame(data).to_csv(base_csv, index=False)
+    pd.DataFrame(data).to_csv(scen_csv, index=False)
+
+    # 1. Test compare_paths as single str
+    out_str = tmp_path / "out_str"
+    res_str = generate_plots(
+        input_path=base_csv,
+        compare_paths=str(scen_csv),
+        preset="executive",
+        output_format="png",
+        output_dir=out_str,
+        allow_external=True,
+    )
+    assert res_str["status"] == "success"
+    assert len(res_str["artifacts"]["png"]) == 1
+    assert Path(res_str["artifacts"]["png"][0]).exists()
+
+    # 2. Test compare_paths as single Path object
+    out_path = tmp_path / "out_path"
+    res_path = generate_plots(
+        input_path=base_csv,
+        compare_paths=scen_csv,
+        preset="executive",
+        output_format="png",
+        output_dir=out_path,
+        allow_external=True,
+    )
+    assert res_path["status"] == "success"
+    assert len(res_path["artifacts"]["png"]) == 1
+    assert Path(res_path["artifacts"]["png"][0]).exists()
+
+    # 3. Test compare_paths as tuple of Paths
+    out_tuple = tmp_path / "out_tuple"
+    res_tuple = generate_plots(
+        input_path=base_csv,
+        compare_paths=(scen_csv,),
+        preset="executive",
+        output_format="png",
+        output_dir=out_tuple,
+        allow_external=True,
+    )
+    assert res_tuple["status"] == "success"
+    assert len(res_tuple["artifacts"]["png"]) == 1
+    assert Path(res_tuple["artifacts"]["png"][0]).exists()
+
+
 
 
 

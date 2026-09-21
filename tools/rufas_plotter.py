@@ -10,9 +10,10 @@ import argparse
 import re
 import sys
 import tempfile
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -1066,9 +1067,13 @@ class _CompareCallable:
 
             def _classmethod_compare(
                 baseline_data: AlignedSimulationData,
-                scenario_data: Union[AlignedSimulationData, List[AlignedSimulationData]],
+                scenario_data: Union[
+                    AlignedSimulationData,
+                    List[AlignedSimulationData],
+                    Tuple[AlignedSimulationData, ...],
+                ],
             ) -> ScenarioComparisonResult:
-                scenarios = scenario_data if isinstance(scenario_data, list) else [scenario_data]
+                scenarios = list(scenario_data) if isinstance(scenario_data, (list, tuple)) else [scenario_data]
                 return owner(baseline=baseline_data, scenarios=scenarios).compute_deltas()
 
             return _classmethod_compare
@@ -1076,11 +1081,17 @@ class _CompareCallable:
 
             def _instance_compare(
                 baseline_data: Optional[AlignedSimulationData] = None,
-                scenario_data: Optional[Union[AlignedSimulationData, List[AlignedSimulationData]]] = None,
+                scenario_data: Optional[
+                    Union[
+                        AlignedSimulationData,
+                        List[AlignedSimulationData],
+                        Tuple[AlignedSimulationData, ...],
+                    ]
+                ] = None,
             ) -> ScenarioComparisonResult:
                 if baseline_data is None and scenario_data is None:
                     return instance.compute_deltas()
-                scenarios = scenario_data if isinstance(scenario_data, list) else [scenario_data]
+                scenarios = list(scenario_data) if isinstance(scenario_data, (list, tuple)) else [scenario_data]
                 return owner(baseline=baseline_data, scenarios=scenarios).compute_deltas()
 
             return _instance_compare
@@ -1157,7 +1168,29 @@ class ScenarioComparator:
         scenario_deltas: List[ScenarioDelta] = []
         overall_summary: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
+        name_counts = Counter(s.name for s in self.scenarios)
+        name_seen: Dict[str, int] = {}
+        used_names: set = {self.baseline.name} if (self.baseline and self.baseline.name) else set()
+
         for scen in self.scenarios:
+            raw_name = scen.name
+            if name_counts[raw_name] > 1:
+                name_seen[raw_name] = name_seen.get(raw_name, 0) + 1
+                cand = f"{raw_name}_{name_seen[raw_name]}"
+                while cand in used_names:
+                    name_seen[raw_name] += 1
+                    cand = f"{raw_name}_{name_seen[raw_name]}"
+                scen_name = cand
+            else:
+                cand = raw_name
+                if cand in used_names:
+                    idx = 1
+                    while f"{cand}_{idx}" in used_names:
+                        idx += 1
+                    cand = f"{cand}_{idx}"
+                scen_name = cand
+            used_names.add(scen_name)
+
             target_metrics = (
                 metrics
                 if metrics is not None
@@ -1234,14 +1267,14 @@ class ScenarioComparator:
                 }
 
             scen_delta = ScenarioDelta(
-                name=scen.name,
+                name=scen_name,
                 data=scen,
                 abs_deltas=abs_df,
                 pct_deltas=pct_df,
                 kpi_summary=scen_summary,
             )
             scenario_deltas.append(scen_delta)
-            overall_summary[scen.name] = scen_summary
+            overall_summary[scen_name] = scen_summary
 
         cal_years = (
             self.baseline.calendar_years.reindex(common_index)
@@ -1285,9 +1318,9 @@ class ScenarioComparator:
         series_map: Dict[str, pd.Series] = {}
         if metric in self.baseline.df.columns:
             series_map[self.baseline.name] = self.baseline.df.loc[idx, metric]
-        for s in self.scenarios:
-            if metric in s.df.columns:
-                series_map[s.name] = s.df.loc[idx, metric]
+        for s in self._result.scenarios:
+            if metric in s.data.df.columns:
+                series_map[s.name] = s.data.df.loc[idx, metric]
         return series_map
 
     def get_common_metrics(self) -> List[str]:
@@ -2376,7 +2409,7 @@ def generate_plots(
     preset: str = "executive",
     custom_vars: Optional[Union[str, List[str]]] = None,
     output_format: str = "both",
-    compare_paths: Optional[List[Union[str, Path]]] = None,
+    compare_paths: Optional[Union[str, Path, Sequence[Union[str, Path]]]] = None,
     output_dir: Optional[Union[str, Path]] = None,
     rolling_window: int = 30,
     dpi: int = 300,
@@ -2396,8 +2429,9 @@ def generate_plots(
         List of custom variable names or regex patterns to plot.
     output_format : str
         Output format: 'both' (PNG + HTML), 'png', 'html', or 'pdf'.
-    compare_paths : Optional[List[Union[str, Path]]]
+    compare_paths : Optional[Union[str, Path, Sequence[Union[str, Path]]]]
         One or more simulation CSV paths or output directories for scenario comparison.
+        Can be a single path (str or Path) or a sequence (list or tuple) of paths.
     output_dir : Optional[Union[str, Path]]
         Destination directory for generated plots. If None, defaults to <input_dir>/plots/.
     rolling_window : int
@@ -2462,7 +2496,14 @@ def generate_plots(
     # 6. Resolve scenario comparison CSVs if provided
     resolved_scenarios: List[Path] = []
     if compare_paths:
-        for cp in compare_paths:
+        if isinstance(compare_paths, (str, Path)):
+            normalized_compare_paths = [compare_paths]
+        elif isinstance(compare_paths, (list, tuple)):
+            normalized_compare_paths = list(compare_paths)
+        else:
+            normalized_compare_paths = [compare_paths]
+
+        for cp in normalized_compare_paths:
             resolved_scenarios.append(
                 find_latest_simulation_csv(cp, allow_external=allow_external)
             )
