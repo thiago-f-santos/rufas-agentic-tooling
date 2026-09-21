@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: Ambiente com `plotly>=5.0.0` instalado e entrypoint CLI `rufas-plot = "tools.rufas_plotter:main"` registrado.
 
-- [ ] **Step 1: Atualizar `pyproject.toml` com dependência Plotly e script `rufas-plot`**
+- [x] **Step 1: Atualizar `pyproject.toml` com dependência Plotly e script `rufas-plot`**
 
 ```toml
 # Em dependencies:
@@ -55,17 +55,17 @@ rufas-brain = "tools.rufas_brain:main"
 rufas-plot = "tools.rufas_plotter:main"
 ```
 
-- [ ] **Step 2: Instalar dependências no ambiente virtual**
+- [x] **Step 2: Instalar dependências no ambiente virtual**
 
 Run: `./venv/bin/pip install "plotly>=5.0.0" "pillow>=10.0.0" -e .`
 Expected: Instalação com sucesso e `plotly` disponível no `venv`.
 
-- [ ] **Step 3: Verificar disponibilidade do módulo Plotly**
+- [x] **Step 3: Verificar disponibilidade do módulo Plotly**
 
 Run: `./venv/bin/python -c "import plotly; print(plotly.__version__)"`
 Expected: Versão do Plotly impressa sem erros.
 
-- [ ] **Step 4: Commit das alterações de configuração**
+- [x] **Step 4: Commit das alterações de configuração**
 
 ```bash
 git add pyproject.toml
@@ -85,7 +85,7 @@ git commit -m "build: add plotly and pillow dependencies and register rufas-plot
   - `PresetRegistry`: Dicionário canônico mapeando `executive`, `animal`, `eee`, `field-crops`, `manure` para regras de resolução de variáveis.
   - `resolve_columns_for_preset(header_columns: List[str], preset: str, custom_vars: Optional[List[str]]) -> Dict[str, Any]`
 
-- [ ] **Step 1: Escrever teste unitário com falha para o `PresetRegistry` e resolução de colunas**
+- [x] **Step 1: Escrever teste unitário com falha para o `PresetRegistry` e resolução de colunas**
 
 Criar `tests/test_rufas_plotter.py`:
 ```python
@@ -117,23 +117,23 @@ def test_resolve_columns_custom_vars():
     assert "ColA" in resolved["required_columns"]
 ```
 
-- [ ] **Step 2: Executar teste para verificar falha**
+- [x] **Step 2: Executar teste para verificar falha**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py::test_resolve_columns_executive_preset -v`
 Expected: FAIL com `ModuleNotFoundError` ou `ImportError`.
 
-- [ ] **Step 3: Implementar `PresetRegistry` e `resolve_columns_for_preset` em `tools/rufas_plotter.py`**
+- [x] **Step 3: Implementar `PresetRegistry` e `resolve_columns_for_preset` em `tools/rufas_plotter.py`**
 
 Criar `tools/rufas_plotter.py` com:
 - Dicionário `PRESET_DEFINITIONS` cobrindo `executive`, `animal`, `eee`, `field-crops`, `manure`.
 - Função `resolve_columns_for_preset` que mapeia padrões, resolve colunas dependentes de tempo e extrai variáveis solicitadas.
 
-- [ ] **Step 4: Executar testes para verificar aprovação**
+- [x] **Step 4: Executar testes para verificar aprovação**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py -v`
 Expected: PASS para ambos os testes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_plotter.py tests/test_rufas_plotter.py
@@ -153,7 +153,7 @@ git commit -m "feat(plotter): implement PresetRegistry and selective column reso
   - `RaggedTimeSeriesLoader.load_aligned_dataframe(csv_path: Path, preset: str, custom_vars: Optional[List[str]] = None, rolling_window: int = 30) -> AlignedSimulationData`
   - Classe de dados `AlignedSimulationData` contendo `df: pd.DataFrame` uniforme indexado por `simulation_day` e metadados das séries (unidades, títulos, agregações).
 
-- [ ] **Step 1: Escrever teste unitário com falha para agregação de dados *ragged***
+- [x] **Step 1: Escrever teste unitário com falha para agregação de dados *ragged***
 
 Adicionar em `tests/test_rufas_plotter.py`:
 ```python
@@ -191,23 +191,23 @@ def test_temporal_aligner_ragged_data(tmp_path):
     assert "milk_produced_total_rolling" in df.columns
 ```
 
-- [ ] **Step 2: Executar teste para verificar falha**
+- [x] **Step 2: Executar teste para verificar falha**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py::test_temporal_aligner_ragged_data -v`
 Expected: FAIL com `NameError: TemporalAligner is not defined`.
 
-- [ ] **Step 3: Implementar `TemporalAligner` e `RaggedTimeSeriesLoader` em `tools/rufas_plotter.py`**
+- [x] **Step 3: Implementar `TemporalAligner` e `RaggedTimeSeriesLoader` em `tools/rufas_plotter.py`**
 
 Implementar:
 - `TemporalAligner`: lê apenas colunas resolvidas com `usecols`, identifica colunas com `_time_col` específico ou usa `RufasTime.simulation_day`, aplica funções de agregação (`sum`, `mean`) e reindexa com `pd.RangeIndex(0, max_day + 1)`.
 - Cálculo de colunas rolling: `df[f"{col}_rolling"] = df[col].rolling(window, min_periods=1).mean()`.
 
-- [ ] **Step 4: Executar testes para verificar aprovação**
+- [x] **Step 4: Executar testes para verificar aprovação**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py -v`
 Expected: PASS para todos os testes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_plotter.py tests/test_rufas_plotter.py
@@ -227,7 +227,7 @@ git commit -m "feat(plotter): implement TemporalAligner for ragged RuFaS time-se
   - `ScenarioComparator.compare(baseline_data: AlignedSimulationData, scenario_data: AlignedSimulationData) -> ScenarioComparisonResult`
   - Métodos para extração de séries sobrepostas, deltas diários ($\Delta\%$) e sumário consolidado de KPIs.
 
-- [ ] **Step 1: Escrever teste unitário com falha para o cálculo de deltas entre cenários**
+- [x] **Step 1: Escrever teste unitário com falha para o cálculo de deltas entre cenários**
 
 Adicionar em `tests/test_rufas_plotter.py`:
 ```python
@@ -259,21 +259,21 @@ def test_scenario_comparator_delta_calculation():
     assert summary["Treatment"]["methane_emission"]["total_delta_pct"] == pytest.approx(-13.33, rel=1e-2)
 ```
 
-- [ ] **Step 2: Executar teste para verificar falha**
+- [x] **Step 2: Executar teste para verificar falha**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py::test_scenario_comparator_delta_calculation -v`
 Expected: FAIL com `NameError: ScenarioComparator is not defined`.
 
-- [ ] **Step 3: Implementar `ScenarioComparator` em `tools/rufas_plotter.py`**
+- [x] **Step 3: Implementar `ScenarioComparator` em `tools/rufas_plotter.py`**
 
 Implementar classes e métodos de alinhamento temporal mútuo, cálculo seguro de deltas com tratamento de divisão por zero (`np.where(base == 0, 0, (scen - base) / base * 100)`), e resumo estatístico de métricas-chave.
 
-- [ ] **Step 4: Executar testes para verificar aprovação**
+- [x] **Step 4: Executar testes para verificar aprovação**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py -v`
 Expected: PASS para todos os testes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_plotter.py tests/test_rufas_plotter.py
@@ -292,7 +292,7 @@ git commit -m "feat(plotter): implement ScenarioComparator for A/B delta analyti
 - Produces:
   - `MatplotlibRenderer.render(data: AlignedSimulationData, output_path: Path, comparison: Optional[ScenarioComparisonResult] = None, dpi: int = 300) -> Path`
 
-- [ ] **Step 1: Escrever teste unitário com falha para renderização de imagem PNG válida**
+- [x] **Step 1: Escrever teste unitário com falha para renderização de imagem PNG válida**
 
 Adicionar em `tests/test_rufas_plotter.py`:
 ```python
@@ -330,12 +330,12 @@ def test_matplotlib_renderer_creates_valid_png(tmp_path):
         assert img.size[0] > 500 and img.size[1] > 300
 ```
 
-- [ ] **Step 2: Executar teste para verificar falha**
+- [x] **Step 2: Executar teste para verificar falha**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py::test_matplotlib_renderer_creates_valid_png -v`
 Expected: FAIL com `NameError: MatplotlibRenderer is not defined`.
 
-- [ ] **Step 3: Implementar `MatplotlibRenderer` em `tools/rufas_plotter.py`**
+- [x] **Step 3: Implementar `MatplotlibRenderer` em `tools/rufas_plotter.py`**
 
 Implementar geração de figuras:
 - Configuração de estilo: grid discreto, paletas de cores (`#1f77b4`, `#2ca02c`, `#d62728`, `#9467bd`, etc.).
@@ -344,12 +344,12 @@ Implementar geração de figuras:
 - Se houver `ScenarioComparisonResult`, sobrepor curvas com estilos de linha (`-`, `--`, `:`) e adicionar subpainel de delta percentual.
 - Exportação segura fechando figuras com `plt.close(fig)` para evitar vazamento de memória.
 
-- [ ] **Step 4: Executar testes para verificar aprovação**
+- [x] **Step 4: Executar testes para verificar aprovação**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py -v`
 Expected: PASS para todos os testes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_plotter.py tests/test_rufas_plotter.py
@@ -368,7 +368,7 @@ git commit -m "feat(plotter): implement MatplotlibRenderer for publication-quali
 - Produces:
   - `PlotlyRenderer.render(data: AlignedSimulationData, output_path: Path, comparison: Optional[ScenarioComparisonResult] = None) -> Path`
 
-- [ ] **Step 1: Escrever teste unitário com falha para exportação de HTML interativo autônomo**
+- [x] **Step 1: Escrever teste unitário com falha para exportação de HTML interativo autônomo**
 
 Adicionar em `tests/test_rufas_plotter.py`:
 ```python
@@ -401,12 +401,12 @@ def test_plotly_renderer_creates_standalone_html(tmp_path):
     assert "plotly" in content.lower()
 ```
 
-- [ ] **Step 2: Executar teste para verificar falha**
+- [x] **Step 2: Executar teste para verificar falha**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py::test_plotly_renderer_creates_standalone_html -v`
 Expected: FAIL com `NameError: PlotlyRenderer is not defined`.
 
-- [ ] **Step 3: Implementar `PlotlyRenderer` em `tools/rufas_plotter.py`**
+- [x] **Step 3: Implementar `PlotlyRenderer` em `tools/rufas_plotter.py`**
 
 Implementar geração de dashboard interativo:
 - `make_subplots` com `shared_xaxes=True`.
@@ -414,12 +414,12 @@ Implementar geração de dashboard interativo:
 - Adição de range slider no eixo inferior.
 - Exportação com `fig.write_html(str(output_path), include_plotlyjs=True, full_html=True)`.
 
-- [ ] **Step 4: Executar testes para verificar aprovação**
+- [x] **Step 4: Executar testes para verificar aprovação**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py -v`
 Expected: PASS para todos os testes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_plotter.py tests/test_rufas_plotter.py
@@ -439,7 +439,7 @@ git commit -m "feat(plotter): implement PlotlyRenderer for standalone interactiv
   - `generate_plots(...) -> Dict[str, Any]`
   - `main()` com parser `argparse` e validação de escopo via `assert_within_rufas_scope`.
 
-- [ ] **Step 1: Escrever teste de integração para `generate_plots` e CLI**
+- [x] **Step 1: Escrever teste de integração para `generate_plots` e CLI**
 
 Adicionar em `tests/test_rufas_plotter.py`:
 ```python
@@ -468,12 +468,12 @@ def test_generate_plots_end_to_end_on_real_csv(tmp_path):
         assert p.stat().st_size > 0
 ```
 
-- [ ] **Step 2: Executar teste para verificar falha**
+- [x] **Step 2: Executar teste para verificar falha**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py::test_generate_plots_end_to_end_on_real_csv -v`
 Expected: FAIL com `ImportError` ou `NameError: generate_plots is not defined`.
 
-- [ ] **Step 3: Implementar `generate_plots` e `main()` CLI em `tools/rufas_plotter.py`**
+- [x] **Step 3: Implementar `generate_plots` e `main()` CLI em `tools/rufas_plotter.py`**
 
 Implementar:
 - Validação de escopo com `assert_within_rufas_scope`.
@@ -481,17 +481,17 @@ Implementar:
 - Orquestração dos passos de carregamento seletivo, alinhamento temporal, comparação e renderização dupla.
 - CLI com `argparse` e código de saída 0 para sucesso, 1 para falha com mensagem explicativa.
 
-- [ ] **Step 4: Executar testes para verificar aprovação**
+- [x] **Step 4: Executar testes para verificar aprovação**
 
 Run: `./venv/bin/pytest tests/test_rufas_plotter.py -v`
 Expected: PASS para toda a suíte de testes do plotter.
 
-- [ ] **Step 5: Testar o comando CLI diretamente no terminal**
+- [x] **Step 5: Testar o comando CLI diretamente no terminal**
 
 Run: `./venv/bin/python tools/rufas_plotter.py --help`
 Expected: Exibição completa da mensagem de ajuda da CLI.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tools/rufas_plotter.py tests/test_rufas_plotter.py
@@ -512,7 +512,7 @@ git commit -m "feat(plotter): implement generate_plots API orchestrator and rufa
   - Flag `--plot` disponível em `rufas-analyze`.
   - Skill `rufas` documentando o uso do visualizador e da geração de gráficos para os agentes.
 
-- [ ] **Step 1: Adicionar teste para flag `--plot` no `rufas_analyzer`**
+- [x] **Step 1: Adicionar teste para flag `--plot` no `rufas_analyzer`**
 
 Em `tests/test_rufas_analyzer.py`:
 ```python
@@ -523,7 +523,7 @@ def test_analyzer_cli_supports_plot_flag():
     assert args.plot is True
 ```
 
-- [ ] **Step 2: Implementar flag `--plot` no `tools/rufas_analyzer.py`**
+- [x] **Step 2: Implementar flag `--plot` no `tools/rufas_analyzer.py`**
 
 Adicionar:
 ```python
@@ -535,16 +535,16 @@ from tools.rufas_plotter import generate_plots
 generate_plots(output_dir=target_dir, preset="executive", output_format="both")
 ```
 
-- [ ] **Step 3: Documentar o `rufas-plot` em `skills/rufas/SKILL.md`**
+- [x] **Step 3: Documentar o `rufas-plot` em `skills/rufas/SKILL.md`**
 
 Adicionar seção com instruções de uso do `rufas-plot`, presets e opções para que o agente Antigravity saiba quando e como gerar gráficos ao analisar simulações.
 
-- [ ] **Step 4: Executar suíte completa de testes de regressão**
+- [x] **Step 4: Executar suíte completa de testes de regressão**
 
 Run: `./venv/bin/pytest tests/ -v`
 Expected: Todos os testes passando sem erros.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/rufas_analyzer.py skills/rufas/SKILL.md tests/test_rufas_analyzer.py
