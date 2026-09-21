@@ -4,6 +4,7 @@ import pytest
 from tools.config import RuFaSBoundaryError
 from tools.rufas_plotter import (
     AlignedSimulationData,
+    MatplotlibRenderer,
     PresetRegistry,
     RaggedTimeSeriesLoader,
     ScenarioComparator,
@@ -12,6 +13,8 @@ from tools.rufas_plotter import (
     TemporalAligner,
     resolve_columns_for_preset,
 )
+from PIL import Image
+
 
 
 def test_resolve_columns_executive_preset():
@@ -326,6 +329,168 @@ def test_scenario_comparator_multiple_scenarios_and_classmethod_compare():
     assert "Minus10" in overlay
     assert overlay["Base"].tolist() == [100.0, 200.0]
     assert overlay["Plus10"].tolist() == [110.0, 220.0]
+
+
+def test_matplotlib_renderer_creates_valid_png(tmp_path):
+    df = pd.DataFrame({
+        "milk_produced_total": [100.0, 105.0, 110.0, 108.0],
+        "milk_produced_total_rolling": [100.0, 102.5, 105.0, 105.75],
+        "transpiration": [4.0, 5.0, 3.5, 4.2],
+        "transpiration_rolling": [4.0, 4.5, 4.16, 4.17],
+    }, index=[0, 1, 2, 3])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="TestSim",
+        preset="executive",
+        units={"milk_produced_total": "kg/day", "transpiration": "mm"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day"},
+            "transp": {"primary": "transpiration", "rolling": "transpiration_rolling", "title": "Transpiration", "unit": "mm"}
+        }
+    )
+
+    out_file = tmp_path / "test_dashboard.png"
+    renderer = MatplotlibRenderer()
+    saved_path = renderer.render(data, out_file, dpi=100)
+
+    assert saved_path.exists()
+    assert saved_path.stat().st_size > 0
+    # Validação com PIL
+    with Image.open(saved_path) as img:
+        assert img.format == "PNG"
+        assert img.size[0] > 500 and img.size[1] > 300
+
+
+def test_matplotlib_renderer_creates_valid_pdf(tmp_path):
+    df = pd.DataFrame({
+        "var_a": [10.0, 20.0, 30.0],
+        "var_a_rolling": [10.0, 15.0, 20.0],
+    }, index=[0, 1, 2])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="PDFSim",
+        preset="custom",
+        units={"var_a": "units"},
+        panels={
+            "panel_a": {"primary": "var_a", "rolling": "var_a_rolling", "title": "Metric A", "unit": "units"}
+        }
+    )
+
+    out_file = tmp_path / "test_report.pdf"
+    renderer = MatplotlibRenderer()
+    saved_path = renderer.render(data, out_file)
+
+    assert saved_path.exists()
+    assert saved_path.stat().st_size > 0
+    with open(saved_path, "rb") as f:
+        header = f.read(5)
+        assert header.startswith(b"%PDF")
+
+
+def test_matplotlib_renderer_with_scenario_comparison(tmp_path):
+    df_base = pd.DataFrame({
+        "milk_produced_total": [100.0, 105.0, 110.0],
+        "milk_produced_total_rolling": [100.0, 102.5, 105.0],
+        "methane": [50.0, 48.0, 49.0],
+        "methane_rolling": [50.0, 49.0, 49.0],
+    }, index=[0, 1, 2])
+
+    df_scen = pd.DataFrame({
+        "milk_produced_total": [102.0, 108.0, 115.0],
+        "milk_produced_total_rolling": [102.0, 105.0, 108.3],
+        "methane": [45.0, 42.0, 40.0],
+        "methane_rolling": [45.0, 43.5, 42.3],
+    }, index=[0, 1, 2])
+
+    base = AlignedSimulationData(
+        df=df_base,
+        name="Baseline",
+        preset="executive",
+        units={"milk_produced_total": "kg/day", "methane": "g"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day"},
+            "methane": {"primary": "methane", "rolling": "methane_rolling", "title": "Methane", "unit": "g"}
+        }
+    )
+
+    scen = AlignedSimulationData(
+        df=df_scen,
+        name="Additive Diet",
+        preset="executive",
+        units={"milk_produced_total": "kg/day", "methane": "g"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day"},
+            "methane": {"primary": "methane", "rolling": "methane_rolling", "title": "Methane", "unit": "g"}
+        }
+    )
+
+    comparator = ScenarioComparator(base, scen)
+    comp_result = comparator.compute_deltas()
+
+    out_file = tmp_path / "comparison_plot.png"
+    renderer = MatplotlibRenderer()
+    saved_path = renderer.render(base, out_file, comparison=comp_result, dpi=100)
+
+    assert saved_path.exists()
+    assert saved_path.stat().st_size > 0
+    with Image.open(saved_path) as img:
+        assert img.format == "PNG"
+        assert img.size[0] > 500 and img.size[1] > 300
+
+
+def test_matplotlib_renderer_missing_module_handling(tmp_path):
+    df = pd.DataFrame({
+        "milk_produced_total": [100.0, 105.0],
+        "milk_produced_total_rolling": [100.0, 102.5],
+    }, index=[0, 1])
+
+    data = AlignedSimulationData(
+        df=df,
+        name="SimWithMissing",
+        preset="executive",
+        units={"milk_produced_total": "kg/day"},
+        panels={
+            "milk": {"primary": "milk_produced_total", "rolling": "milk_produced_total_rolling", "title": "Milk Yield", "unit": "kg/day", "available": True},
+            "field": {"primary": None, "rolling": None, "title": "Field Crops", "available": False, "missing_reason": "Module 'field' not configured in this simulation"}
+        }
+    )
+
+    out_file = tmp_path / "missing_module.png"
+    renderer = MatplotlibRenderer()
+    saved_path = renderer.render(data, out_file, dpi=100)
+
+    assert saved_path.exists()
+    assert saved_path.stat().st_size > 0
+    with Image.open(saved_path) as img:
+        assert img.format == "PNG"
+
+
+def test_matplotlib_renderer_memory_safety(tmp_path):
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame({"x": [1, 2, 3], "x_rolling": [1, 1.5, 2]}, index=[0, 1, 2])
+    data = AlignedSimulationData(
+        df=df,
+        name="MemTest",
+        panels={"x": {"primary": "x", "rolling": "x_rolling", "title": "X", "unit": ""}}
+    )
+
+    out_file = tmp_path / "mem_test.png"
+    renderer = MatplotlibRenderer()
+
+    # Pre-check figure count
+    plt.close("all")
+    initial_figs = len(plt.get_fignums())
+    assert initial_figs == 0
+
+    renderer.render(data, out_file, dpi=50)
+
+    # Figure count should be 0 because plt.close(fig) is guaranteed
+    assert len(plt.get_fignums()) == 0
+
+
 
 
 

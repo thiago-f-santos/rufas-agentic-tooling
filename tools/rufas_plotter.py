@@ -16,6 +16,11 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+
 from tools.config import (
     RuFaSBoundaryError,
     RuFaSConfigError,
@@ -25,6 +30,7 @@ from tools.config import (
 
 __all__ = [
     "AlignedSimulationData",
+    "MatplotlibRenderer",
     "PresetRegistry",
     "PRESET_DEFINITIONS",
     "RaggedTimeSeriesLoader",
@@ -36,6 +42,7 @@ __all__ = [
     "resolve_columns_for_preset",
     "main",
 ]
+
 
 
 
@@ -1291,6 +1298,358 @@ class ScenarioComparator:
                 if c in s.df.columns and pd.api.types.is_numeric_dtype(s.df[c])
             ]
         return metrics
+
+
+class MatplotlibRenderer:
+    """
+    Static multi-panel figure renderer using Matplotlib.
+    Generates publication-quality figures in PNG (300 DPI) and PDF
+    with clean styling, subtle grids, semantic colors, rolling average overlays,
+    and optional scenario comparison delta subplots.
+    """
+
+    DEFAULT_PALETTE = [
+        "#1f77b4",  # Blue
+        "#2ca02c",  # Green
+        "#d62728",  # Red
+        "#9467bd",  # Purple
+        "#ff7f0e",  # Orange
+        "#8c564b",  # Brown
+        "#17becf",  # Teal
+        "#bcbd22",  # Yellow-green
+    ]
+
+    SEMANTIC_PANEL_COLORS = {
+        "milk_produced": "#1f77b4",
+        "milk": "#1f77b4",
+        "milk_solids": "#17becf",
+        "days_in_milk": "#3366cc",
+        "herd_dynamics": "#9467bd",
+        "methane_emission": "#d62728",
+        "methane": "#d62728",
+        "carbon_intensity": "#ff7f0e",
+        "energy_consumption": "#bcbd22",
+        "manure_excretion": "#8c564b",
+        "manure_nutrients": "#a05d56",
+        "storage_gas_loss": "#d62728",
+        "manure_applied": "#8c564b",
+        "applied_manure": "#8c564b",
+        "feed_cost": "#e377c2",
+        "transpiration": "#2ca02c",
+        "transp": "#2ca02c",
+        "soil_emissions": "#ff7f0e",
+        "soil_water": "#1f77b4",
+    }
+
+    SCENARIO_LINESTYLES = ["--", ":", "-.", (0, (3, 1, 1, 1))]
+    SCENARIO_COLORS = ["#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
+
+    def __init__(self, style: str = "default", figsize: Optional[tuple] = None):
+        self.style = style
+        self.figsize = figsize
+
+    def _determine_grid(self, preset: str, n_panels: int) -> tuple[int, int]:
+        """Calculates (nrows, ncols) grid based on preset and number of panels."""
+        norm_preset = (preset or "custom").strip().lower().replace("_", "-")
+        if norm_preset == "executive":
+            if n_panels <= 6:
+                return (3, 2)
+            ncols = 2
+            return ((n_panels + ncols - 1) // ncols, ncols)
+        elif norm_preset in ("animal", "eee", "field-crops", "manure"):
+            if n_panels <= 4:
+                return (2, 2)
+            ncols = 2
+            return ((n_panels + ncols - 1) // ncols, ncols)
+        else:
+            # Dynamic grid
+            if n_panels <= 1:
+                return (1, 1)
+            elif n_panels == 2:
+                return (1, 2)
+            elif n_panels <= 4:
+                return (2, 2)
+            elif n_panels <= 6:
+                return (3, 2)
+            else:
+                ncols = 2
+                return ((n_panels + ncols - 1) // ncols, ncols)
+
+    def _get_panel_color(self, panel_key: str, index: int) -> str:
+        """Determines semantic color for a panel key, falling back to palette."""
+        clean_key = panel_key.lower().strip()
+        for k, col in self.SEMANTIC_PANEL_COLORS.items():
+            if k in clean_key:
+                return col
+        return self.DEFAULT_PALETTE[index % len(self.DEFAULT_PALETTE)]
+
+    def _apply_axis_styling(self, ax: Any) -> None:
+        """Applies subtle publication-quality styling to a subplot axis."""
+        ax.grid(True, linestyle="--", alpha=0.4, color="#cccccc")
+        ax.set_axisbelow(True)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#666666")
+        ax.spines["bottom"].set_color("#666666")
+        ax.tick_params(labelsize=8)
+
+    def render(
+        self,
+        data: AlignedSimulationData,
+        output_path: Union[str, Path],
+        comparison: Optional[ScenarioComparisonResult] = None,
+        dpi: int = 300,
+        title: Optional[str] = None,
+    ) -> Path:
+        """
+        Renders multi-panel static figure to PNG or PDF.
+
+        Parameters
+        ----------
+        data : AlignedSimulationData
+            Aligned simulation dataset.
+        output_path : Union[str, Path]
+            Destination file path (.png or .pdf).
+        comparison : Optional[ScenarioComparisonResult]
+            Scenario comparison result with baseline, scenarios, and percentage deltas.
+        dpi : int
+            Image resolution in DPI (default: 300).
+        title : Optional[str]
+            Custom figure title.
+
+        Returns
+        -------
+        Path
+            Path to the saved figure file.
+        """
+        out_file = Path(output_path)
+        if out_file.suffix.lower() not in (".png", ".pdf"):
+            out_file = out_file.with_suffix(".png")
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Prepare panels
+        panels_dict = dict(data.panels) if data.panels else {}
+        if not panels_dict and len(data.df.columns) > 0:
+            for col in data.df.columns:
+                if not col.endswith("_rolling") and not col.endswith("_mean"):
+                    panels_dict[col] = {
+                        "primary": col,
+                        "rolling": f"{col}_rolling" if f"{col}_rolling" in data.df.columns else None,
+                        "title": col.replace("_", " ").title(),
+                        "unit": data.units.get(col, ""),
+                        "available": True,
+                    }
+
+        panels_list = list(panels_dict.items())
+        n_panels = max(1, len(panels_list))
+        nrows, ncols = self._determine_grid(data.preset, n_panels)
+
+        # Calculate figsize if not explicitly provided
+        if self.figsize is not None:
+            fig_w, fig_h = self.figsize
+        else:
+            if comparison is not None:
+                fig_w = max(10.0, ncols * 7.5)
+                fig_h = max(6.0, nrows * 5.0)
+            else:
+                fig_w = max(9.0, ncols * 7.0)
+                fig_h = max(5.0, nrows * 4.0)
+
+        fig = plt.figure(figsize=(fig_w, fig_h), facecolor="white")
+
+        try:
+            if comparison is not None:
+                self._render_comparison(
+                    fig=fig,
+                    data=data,
+                    comparison=comparison,
+                    panels_list=panels_list,
+                    nrows=nrows,
+                    ncols=ncols,
+                )
+            else:
+                self._render_single(
+                    fig=fig,
+                    data=data,
+                    panels_list=panels_list,
+                    nrows=nrows,
+                    ncols=ncols,
+                )
+
+            # Main figure title
+            preset_title = PRESET_DEFINITIONS.get(data.preset, {}).get("title", data.preset.title())
+            if title:
+                overall_title = title
+            elif comparison is not None:
+                scen_names = ", ".join(comparison.get_names())
+                overall_title = f"RuFaS Scenario Comparison: {comparison.baseline.name} vs {scen_names} ({preset_title})"
+            else:
+                overall_title = f"RuFaS Simulation: {data.name} — {preset_title}"
+
+            top_margin = 0.94 if nrows > 1 else 0.90
+            bottom_margin = 0.08 if nrows > 1 else 0.12
+            left_margin = 0.08 if ncols > 1 else 0.12
+            right_margin = 0.96
+            fig.subplots_adjust(top=top_margin, bottom=bottom_margin, left=left_margin, right=right_margin)
+            fig.savefig(str(out_file), dpi=dpi, bbox_inches="tight")
+
+        finally:
+            plt.close(fig)
+
+        return out_file
+
+    def _render_single(
+        self,
+        fig: Any,
+        data: AlignedSimulationData,
+        panels_list: List[tuple[str, Dict[str, Any]]],
+        nrows: int,
+        ncols: int,
+    ) -> None:
+        outer = GridSpec(nrows, ncols, figure=fig, hspace=0.35, wspace=0.25)
+        total_slots = nrows * ncols
+
+        for idx in range(total_slots):
+            r = idx // ncols
+            c = idx % ncols
+            ax = fig.add_subplot(outer[r, c])
+
+            if idx >= len(panels_list):
+                ax.set_visible(False)
+                continue
+
+            panel_key, panel_info = panels_list[idx]
+            color = self._get_panel_color(panel_key, idx)
+            title = panel_info.get("title", panel_key)
+            unit = panel_info.get("unit") or data.units.get(panel_info.get("primary", ""), "")
+            is_avail = panel_info.get("available", True)
+            primary_col = panel_info.get("primary")
+            rolling_col = panel_info.get("rolling")
+
+            self._apply_axis_styling(ax)
+
+            if not is_avail or not primary_col or primary_col not in data.df.columns or len(data.df) == 0:
+                reason = panel_info.get("missing_reason") or f"Module '{panel_key}' not configured in simulation"
+                ax.text(0.5, 0.5, reason, ha="center", va="center", transform=ax.transAxes, color="#888888", style="italic", fontsize=10, wrap=True)
+                ax.set_title(title, fontsize=11, fontweight="bold", pad=8)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.grid(False)
+                continue
+
+            x = data.df.index
+            y_raw = data.df[primary_col]
+            has_rolling = bool(rolling_col and rolling_col in data.df.columns)
+
+            if has_rolling:
+                y_roll = data.df[rolling_col]
+                ax.plot(x, y_raw, color=color, alpha=0.25, linewidth=1.0, label="Daily")
+                ax.plot(x, y_roll, color=color, alpha=1.0, linewidth=2.0, label="Rolling Avg")
+                ax.legend(loc="upper left", frameon=True, framealpha=0.85, fontsize=8)
+            else:
+                ax.plot(x, y_raw, color=color, alpha=1.0, linewidth=2.0, label="Daily")
+
+            ax.set_title(title, fontsize=11, fontweight="bold", pad=8)
+            if unit:
+                ax.set_ylabel(unit, fontsize=9, fontweight="medium")
+            ax.set_xlabel("Simulation Day", fontsize=9)
+            if len(x) > 0:
+                ax.set_xlim(left=0, right=max(1, int(x.max())))
+
+    def _render_comparison(
+        self,
+        fig: Any,
+        data: AlignedSimulationData,
+        comparison: ScenarioComparisonResult,
+        panels_list: List[tuple[str, Dict[str, Any]]],
+        nrows: int,
+        ncols: int,
+    ) -> None:
+        outer = GridSpec(nrows, ncols, figure=fig, hspace=0.35, wspace=0.25)
+        total_slots = nrows * ncols
+        common_x = comparison.common_index
+        base_data = comparison.baseline
+
+        for idx in range(total_slots):
+            if idx >= len(panels_list):
+                continue
+
+            r = idx // ncols
+            c = idx % ncols
+            inner = GridSpecFromSubplotSpec(2, 1, subplot_spec=outer[r, c], height_ratios=[3, 1], hspace=0.15)
+            ax_main = fig.add_subplot(inner[0])
+            ax_delta = fig.add_subplot(inner[1], sharex=ax_main)
+
+            panel_key, panel_info = panels_list[idx]
+            base_color = self._get_panel_color(panel_key, idx)
+            title = panel_info.get("title", panel_key)
+            unit = panel_info.get("unit") or base_data.units.get(panel_info.get("primary", ""), "")
+            is_avail = panel_info.get("available", True)
+            primary_col = panel_info.get("primary")
+            rolling_col = panel_info.get("rolling")
+
+            self._apply_axis_styling(ax_main)
+            self._apply_axis_styling(ax_delta)
+
+            if not is_avail or not primary_col or primary_col not in base_data.df.columns or len(common_x) == 0:
+                reason = panel_info.get("missing_reason") or f"Module '{panel_key}' not configured in simulation"
+                ax_main.text(0.5, 0.5, reason, ha="center", va="center", transform=ax_main.transAxes, color="#888888", style="italic", fontsize=10, wrap=True)
+                ax_main.set_title(title, fontsize=11, fontweight="bold", pad=8)
+                ax_main.set_xticks([])
+                ax_main.set_yticks([])
+                ax_main.grid(False)
+                ax_delta.set_visible(False)
+                continue
+
+            # 1. Plot Baseline on ax_main
+            b_raw = base_data.df.loc[common_x, primary_col]
+            has_b_roll = bool(rolling_col and rolling_col in base_data.df.columns)
+            if has_b_roll:
+                b_roll = base_data.df.loc[common_x, rolling_col]
+                ax_main.plot(common_x, b_raw, color=base_color, alpha=0.25, linewidth=0.9, linestyle="-")
+                ax_main.plot(common_x, b_roll, color=base_color, alpha=1.0, linewidth=2.2, linestyle="-", label=f"{base_data.name} (Base)")
+            else:
+                ax_main.plot(common_x, b_raw, color=base_color, alpha=1.0, linewidth=2.2, linestyle="-", label=f"{base_data.name} (Base)")
+
+            # 2. Plot Scenarios on ax_main and deltas on ax_delta
+            for s_idx, scen_delta in enumerate(comparison.scenarios):
+                scen_ls = self.SCENARIO_LINESTYLES[s_idx % len(self.SCENARIO_LINESTYLES)]
+                scen_col = self.SCENARIO_COLORS[s_idx % len(self.SCENARIO_COLORS)]
+                s_df = scen_delta.data.df
+
+                # Main curve
+                if primary_col in s_df.columns:
+                    s_raw = s_df.loc[common_x, primary_col]
+                    has_s_roll = bool(rolling_col and rolling_col in s_df.columns)
+                    if has_s_roll:
+                        s_roll = s_df.loc[common_x, rolling_col]
+                        ax_main.plot(common_x, s_raw, color=scen_col, alpha=0.2, linewidth=0.8, linestyle=scen_ls)
+                        ax_main.plot(common_x, s_roll, color=scen_col, alpha=1.0, linewidth=1.8, linestyle=scen_ls, label=scen_delta.name)
+                    else:
+                        ax_main.plot(common_x, s_raw, color=scen_col, alpha=1.0, linewidth=1.8, linestyle=scen_ls, label=scen_delta.name)
+
+                # Delta curve on ax_delta
+                pct_df = scen_delta.pct_deltas
+                if rolling_col and rolling_col in pct_df.columns:
+                    if primary_col in pct_df.columns:
+                        ax_delta.plot(common_x, pct_df.loc[common_x, primary_col], color=scen_col, alpha=0.25, linewidth=0.8, linestyle=scen_ls)
+                    ax_delta.plot(common_x, pct_df.loc[common_x, rolling_col], color=scen_col, alpha=1.0, linewidth=1.6, linestyle=scen_ls)
+                elif primary_col in pct_df.columns:
+                    ax_delta.plot(common_x, pct_df.loc[common_x, primary_col], color=scen_col, alpha=1.0, linewidth=1.6, linestyle=scen_ls)
+
+            ax_delta.axhline(0, color="#666666", linestyle=":", linewidth=0.9, alpha=0.8)
+            ax_main.set_title(title, fontsize=11, fontweight="bold", pad=6)
+            if unit:
+                ax_main.set_ylabel(unit, fontsize=9, fontweight="medium")
+            ax_main.legend(loc="upper left", frameon=True, framealpha=0.85, fontsize=8)
+            ax_main.tick_params(labelbottom=False)
+            ax_main.set_xlabel("")
+
+            ax_delta.set_ylabel("Δ (%)", fontsize=8, fontweight="medium")
+            ax_delta.set_xlabel("Simulation Day", fontsize=8)
+            if len(common_x) > 0:
+                ax_main.set_xlim(left=0, right=max(1, int(common_x.max())))
+                ax_delta.set_xlim(left=0, right=max(1, int(common_x.max())))
 
 
 def main():
