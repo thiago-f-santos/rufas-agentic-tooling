@@ -17,7 +17,9 @@ dependencies = [
     "deepdiff>=6.0.0",
     "jsonschema>=4.17.0",
     "kuzu>=0.11.3",
-    "scipy>=1.10.0"
+    "scipy>=1.10.0",
+    "plotly>=5.0.0",
+    "pillow>=10.0.0"
 ]
 
 [project.optional-dependencies]
@@ -33,6 +35,7 @@ rufas-run = "tools.rufas_runner:main"
 rufas-analyze = "tools.rufas_analyzer:main"
 rufas-install-skills = "tools.install_skills:main"
 rufas-brain = "tools.rufas_brain:main"
+rufas-plot = "tools.rufas_plotter:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

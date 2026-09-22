@@ -136,6 +136,50 @@ For detailed variable catalogs, filter syntax, and log troubleshooting, consult:
 | Validate task manager metadata | `python -m tools.rufas_inspector --task-metadata input/task_manager_metadata.json` |
 | Run simulation with CSV export | `python -m tools.rufas_runner --task-metadata input/task_manager_metadata.json --enable-all-csv` |
 | Analyze outputs and GHG | `python -m tools.rufas_analyzer --output-dir ../RuFaS/output/` |
+| Analyze outputs and generate plots | `python -m tools.rufas_analyzer --output-dir ../RuFaS/output/ --plot` |
+| Generate executive plots (PNG+HTML) | `rufas-plot` (auto-detects latest CSV in `RuFaS/output/CSVs/`) |
+| Generate modular domain plots | `rufas-plot -p animal` (or `eee`, `field-crops`, `manure`, `all`) |
+| Compare scenarios (A/B testing) | `rufas-plot baseline.csv -c treatment.csv -p executive` |
+| Plot custom variables / regex | `rufas-plot -v "milk.*produced" "enteric.*methane"` |
+
+---
+
+## Simulation Visualization & Plotting (`rufas-plot`)
+
+The `rufas-plot` tool (`tools/rufas_plotter.py`) provides high-performance, selective visualization of RuFaS simulation outputs directly from large CSVs (140+ MB) without loading unneeded data into RAM.
+
+### Key Capabilities
+- **Dual Engine Output**:
+  - **Static (Publication-Ready)**: High-resolution PNG (300 DPI) and PDF via Matplotlib with subtle grid styling, rolling average overlays, and semantic color palettes.
+  - **Interactive (Self-Contained HTML)**: Standalone Plotly dashboards (`include_plotlyjs=True`) with synchronized timeline zooming across panels, Julian/calendar date hover tooltips, and an interactive bottom range slider.
+- **Selective Header Scanner**: Reads only required columns (`nrows=0` header scan + `usecols`), achieving sub-second extraction on multi-year whole-farm simulations.
+- **Temporal Normalization**: Harmonizes ragged time-series (e.g. cow-level milk update data with daily farm-level fields) into uniform daily timelines ($0 \dots T-1$).
+- **Scenario Comparison (A/B Delta Analytics)**: Overlays multiple runs, computes daily percentage deltas ($\Delta\%$), and outputs consolidated KPI tables.
+
+### Available Presets
+| Preset | Panels / Metrics Included | Grid Layout |
+|---|---|---|
+| `executive` (default) | Whole-Farm 360° overview: Daily milk production, cow population, enteric $\text{CH}_4$, crop transpiration, feed cost, manure mass | 3x2 |
+| `animal` | Milk yield total/mean, milk solids, days in milk (DIM), cow population | 2x2 |
+| `eee` | Enteric methane, farm carbon intensity, total energy consumption, feed purchase costs | 2x2 |
+| `field-crops` | Crop transpiration, soil water balance, direct soil $\text{N}_2\text{O}$ emissions, harvest dry matter | 2x2 |
+| `manure` | Pen manure mass excretion, storage gas emissions ($\text{CH}_4/\text{N}_2\text{O}$), pit nutrients, field applied manure | 2x2 |
+| `all` | Sequentially generates all 5 dashboards above in the specified format | Batch |
+| `custom` | Plots any variable name or regex pattern passed via `-v / --vars` | Dynamic |
+
+### Common CLI Options
+- `-p, --preset`: Selects preset (`executive`, `animal`, `eee`, `field-crops`, `manure`, `all`, `custom`).
+- `-v, --vars`: Space- or comma-separated list of variable column names or regexes.
+- `-f, --format`: Output format (`both` [default: PNG+HTML], `png`, `html`, `pdf`).
+- `-c, --compare`: One or more scenario CSV paths for comparative overlay and delta calculation.
+- `-o, --output-dir`: Destination directory (defaults to `<csv_parent>/plots/`).
+- `-w, --rolling-window`: Moving average window size in days (default: 30 days).
+- `--dpi`: Resolution for static image export (default: 300).
+- `--title`: Custom dashboard title header.
+- `--allow-external`: Explicitly permits CSV or plot paths outside canonical RuFaS repository boundaries.
+
+### Integrated Analyzer Flag
+Run `rufas-analyze --plot` to generate the markdown emission summary and automatically produce the executive PNG/HTML dashboards in `<output_dir>/plots/`.
 
 ---
 
